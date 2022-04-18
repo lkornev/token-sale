@@ -45,7 +45,7 @@ pub mod token_sale {
         pool_account.tokens_per_round = tokens_per_round;
         pool_account.current_round = Round::Buying as u8;
         pool_account.lats_round_trading_amount = 0;
-        // pool_account.orders = Vec::new();
+        pool_account.orders = Vec::new();
 
         let token_program = ctx.accounts.token_program.to_account_info();
         let from = ctx.accounts.tokens_for_distribution.to_account_info();
@@ -165,18 +165,17 @@ pub mod token_sale {
     #[access_control(round_trading(&ctx.accounts.pool_account, &ctx.accounts.clock))]
     pub fn redeem_order(
         ctx: Context<RedeemOrder>,
-        order_bump: u8,
         tokens_amount: u64, // amount of tokens to buy
     ) -> Result<()> {
         let buyer = &mut ctx.accounts.buyer;
         let order_owner = &ctx.accounts.order_owner;
-        let token_price = ctx.accounts.pool_account.token_price;
+        let order = &ctx.accounts.order;
 
         if ctx.accounts.order_token_vault.amount < tokens_amount {
             return err!(ErrorCode::InsufficientTokensInVault);
         }
 
-        let lamports_amount = tokens_amount * token_price;
+        let lamports_amount = tokens_amount * order.token_price;
 
         if **buyer.to_account_info().try_borrow_lamports()? < lamports_amount {
             return err!(ErrorCode::InsufficientLamportsToBuyTokens);
@@ -186,7 +185,6 @@ pub mod token_sale {
         send_lamports(buyer.to_account_info(), order_owner.to_account_info(), lamports_amount)?;
 
         // Transfer tokens from the order to the buyer
-        let order = &ctx.accounts.order;
         let token_program = ctx.accounts.token_program.to_account_info();
         let from = ctx.accounts.order_token_vault.to_account_info();
         let to = ctx.accounts.buyer_token_account.to_account_info();

@@ -132,24 +132,24 @@ pub struct RedeemOrder<'info> {
     )]
     pub buyer_token_account: Account<'info, TokenAccount>,
     #[account(
+        mut,
         seeds = [Order::PDA_SEED, order.owner.as_ref()],
         bump,
         constraint = order.owner == order_owner.key(),
     )]
     pub order: Account<'info, Order>,
+    /// CHECK used only to transfer lamports into
+    #[account(mut)]
+    pub order_owner: AccountInfo<'info>,
     #[account(
         mut,
-        constraint = order_token_vault.owner == order.owner,
+        constraint = order_token_vault.owner == order.key(),
         constraint = order_token_vault.mint == selling_mint.key(),
     )]
     pub order_token_vault: Account<'info, TokenAccount>,
-    /// CHECK used only to transfer lamports in
-    pub order_owner: AccountInfo<'info>,
     pub token_program: Program<'info, Token>,
-    pub rent: Sysvar<'info, Rent>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
-    pub system_program: Program<'info, System>,
     pub clock: Sysvar<'info, Clock>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]

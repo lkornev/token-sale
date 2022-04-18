@@ -127,26 +127,32 @@ describe("token-sale", () => {
     });
 
     let buyerFirst: Signer;
-    let buyerSecond: Signer;
     let buyerFirstATA: TokenAccount;
+    let buyerSecond: Signer
     let buyerSecondATA: TokenAccount;
+    let buyerThird: Signer;
+    let buyerThirdATA: TokenAccount;
 
     it("Creates buyers and the ATAs", async () => {
         let [user1, ata1] = await createUserWithATA(sellingMint);
         let [user2, ata2] = await createUserWithATA(sellingMint);
+        let [user3, ata3] = await createUserWithATA(sellingMint);
         buyerFirst = user1;
         buyerFirstATA = ata1;
         buyerSecond = user2;
         buyerSecondATA = ata2;
+        buyerThird = user3;
+        buyerThirdATA = ata3;
 
         expect(`${buyerFirstATA.amount}`).to.be.eq(`${0}`);
         expect(`${buyerSecondATA.amount}`).to.be.eq(`${0}`);
+        expect(`${buyerThirdATA.amount}`).to.be.eq(`${0}`);
     });
 
     const firstTraderBuy = new anchor.BN(5);
     const secondTraderBuy = new anchor.BN(10);
 
-    it("Buys tokens", async () => {
+    it("Buys tokens from the program", async () => {
         const tokenPriceBN = await getTokenPrice();
 
         await buyTokens(firstTraderBuy, buyerFirst);
@@ -177,17 +183,17 @@ describe("token-sale", () => {
         // TODO check pool.roundStartAt is near the current time
     });
 
-    it("Trades tokens", async () => {
-        const amountToSellFirst = new anchor.BN(2);
-        const amountToSellSecond = new anchor.BN(3);
-        const priceForTokenFirst = new anchor.BN(0.12 * LAMPORTS_PER_SOL);
-        const priceForTokenSecond = new anchor.BN(0.13 * LAMPORTS_PER_SOL);
-        const traderFirst = buyerFirst;
-        const traderSecond = buyerSecond;
+    const amountToSellFirst = new anchor.BN(2);
+    const amountToSellSecond = new anchor.BN(3);
+    const priceForTokenFirst = new anchor.BN(0.12 * LAMPORTS_PER_SOL);
+    const priceForTokenSecond = new anchor.BN(0.13 * LAMPORTS_PER_SOL);
+    let placedOrderFirst: PlacedOrder;
+    let placedOrderSecond: PlacedOrder;
 
+    it("Place orders for selling tokens", async () => {
         // Place two orders
-        const placedOrderFirst: PlacedOrder =  await placeOrder(traderFirst, amountToSellFirst, priceForTokenFirst);
-        const placedOrderSecond: PlacedOrder = await placeOrder(traderSecond, amountToSellSecond, priceForTokenSecond);
+        placedOrderFirst =  await placeOrderRPC(buyerFirst, amountToSellFirst, priceForTokenFirst);
+        placedOrderSecond = await placeOrderRPC(buyerSecond, amountToSellSecond, priceForTokenSecond);
 
         // Check pool
         const pool = await program.account.poolAccount.fetch(poolPDA);
@@ -203,9 +209,59 @@ describe("token-sale", () => {
         await expectTokenBalance(buyerSecondATA.address, secondTraderBuy.sub(amountToSellSecond));
     });
 
+    it("Buy tokens from other traders", async () => {
+        const amountToBuy = new anchor.BN(1);
+        const buyer: Signer = buyerThird;
+        const buyerTokenAccount: PublicKey = buyerThirdATA.address;
+        const placedOrder: PlacedOrder = placedOrderFirst;
+
+        const orderBefore = await program.account.order.fetch(placedOrder.address);
+        const orderTokenVaultBefore = await getTokenAccount(connection, placedOrder.tokenVault);
+        const orderOwnerAccountBefore = await anchor.getProvider().connection.getAccountInfo(placedOrder.owner);
+
+        await redeemOrderRPC(amountToBuy, buyer, placedOrder);
+
+        // Checking token balances
+        const order = await program.account.order.fetch(placedOrder.address);
+        expect(`${order.tokenAmount}`).to.be.eq(`${orderBefore.tokenAmount.sub(amountToBuy)}`);
+        await expectTokenBalance(
+            order.tokenVault,
+            (new anchor.BN(orderTokenVaultBefore.amount.toString())).sub(amountToBuy)
+        );
+        await expectTokenBalance(buyerTokenAccount, amountToBuy);
+
+        // Checking the order's owner lamport balance
+        const expectedLamportsIncome = orderBefore.tokenPrice.mul(amountToBuy).toNumber();
+        const orderOwnerAccount = await anchor.getProvider().connection.getAccountInfo(placedOrder.owner);
+        expect(orderOwnerAccount.lamports - orderOwnerAccountBefore.lamports).to.be.eq(expectedLamportsIncome);
+    });
+
 
     // Helper functions
-    async function placeOrder(seller: Signer, amountToSell: anchor.BN, priceForToken: anchor.BN): PlacedOrder {
+    async function redeemOrderRPC(amountToBuy: anchor.BN, buyer: Signer, placedOrder: PlacedOrder) {
+        const buyerTokenAccount: PublicKey = await getAssociatedTokenAddress(sellingMint, buyer.publicKey);
+
+        await program.methods
+            .redeemOrder(
+                amountToBuy,
+            )
+            .accounts({
+                poolAccount: poolPDA,
+                sellingMint,
+                buyer: buyer.publicKey,
+                buyerTokenAccount,
+                order: placedOrder.address,
+                orderOwner: placedOrder.owner,
+                orderTokenVault: placedOrder.tokenVault,
+                tokenProgram: TOKEN_PROGRAM_ID,
+                clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
+                systemProgram: SystemProgram.programId,
+            })
+            .signers([buyer])
+            .rpc();
+    }
+
+    async function placeOrderRPC(seller: Signer, amountToSell: anchor.BN, priceForToken: anchor.BN): Promise<PlacedOrder> {
         const [orderPDA, orderBump] = await anchor.web3.PublicKey.findProgramAddress(
             [
                 anchor.utils.bytes.utf8.encode("order"),
@@ -258,6 +314,7 @@ describe("token-sale", () => {
             address: orderPDA,
             bump: orderBump,
             tokenVault: order.tokenVault,
+            owner: order.owner,
         });
     }
 
@@ -320,4 +377,5 @@ export interface PlacedOrder {
     address: PublicKey,
     bump: number,
     tokenVault: PublicKey,
+    owner: PublicKey,
 }
