@@ -24,6 +24,10 @@ pub mod token_sale {
         pool_bump: u8,
         amount_to_sell: u64,
     ) -> Result<()> {
+        if token_price == 0 {
+            return err!(ErrorCode::TokenPriceZero);
+        }
+
         if amount_to_sell > ctx.accounts.tokens_for_distribution.amount {
             return err!(ErrorCode::NotEnoughTokensForSale);
         }
@@ -44,7 +48,7 @@ pub mod token_sale {
         pool_account.token_price = token_price;
         pool_account.tokens_per_round = tokens_per_round;
         pool_account.current_round = Round::Buying as u8;
-        pool_account.lats_round_trading_amount = 0;
+        pool_account.last_round_trading_amount = 0;
         pool_account.orders = Vec::new();
 
         let token_program = ctx.accounts.token_program.to_account_info();
@@ -116,7 +120,7 @@ pub mod token_sale {
         pool.round_start_at = ctx.accounts.clock.unix_timestamp as u64;
         pool.current_round = Round::Trading as u8;
         // Store the new round trading amount. For now it's zero.
-        pool.lats_round_trading_amount = 0;
+        pool.last_round_trading_amount = 0;
 
         Ok(())
     }
@@ -130,6 +134,10 @@ pub mod token_sale {
     ) -> Result<()> {
         let pool = &mut ctx.accounts.pool_account;
         let order = &mut ctx.accounts.order;
+
+        if amount_to_sell < 1 {
+            return err!(ErrorCode::SellingToFewTokens);
+        }
 
         if ctx.accounts.seller_token_account.amount < amount_to_sell {
             return err!(ErrorCode::InsufficientTokensInVault);
@@ -171,6 +179,10 @@ pub mod token_sale {
         let order_owner = &ctx.accounts.order_owner;
         let order = &ctx.accounts.order;
 
+        if tokens_amount < 1 {
+            return err!(ErrorCode::BuyingToFewTokens);
+        }
+
         if ctx.accounts.order_token_vault.amount < tokens_amount {
             return err!(ErrorCode::InsufficientTokensInVault);
         }
@@ -211,16 +223,21 @@ pub mod token_sale {
 
         // Save the total trading amount in lamports
         let pool = &mut ctx.accounts.pool_account;
-        pool.lats_round_trading_amount += lamports_amount;
+        pool.last_round_trading_amount += lamports_amount;
 
         // TODO return rent-exempt lamports to order owner if the order is empty
 
         Ok(())
     }
 
-    // TODO close_order
-        // TODO return tokens
-        // TODO return rent
+    pub fn close_order(ctx: Context<CloseOrder>) -> Result<()> {
+        // TODO remove order from pool.orders
+        // TODO return tokens to the account provided by the caller,
+        //   it has to be owned by the order's owner
+        // TODO return rent (destroy accounts)
+
+        unimplemented!()
+    }
 
     #[access_control(can_switch_to_buying_round(&ctx.accounts.pool_account, &ctx.accounts.clock))]
     pub fn switch_to_buying(ctx: Context<SwitchToBuying>) -> Result<()> {

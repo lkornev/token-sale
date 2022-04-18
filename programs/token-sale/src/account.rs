@@ -30,7 +30,7 @@ pub struct PoolAccount {
     /// UNIX timestamp when the current round started begins
     pub round_start_at: u64,
     /// Amount of lamports raised in the last trading round
-    pub lats_round_trading_amount: u64,
+    pub last_round_trading_amount: u64,
     /// The list of selling tokens orders
     pub orders: Vec<OrderAddress>,
 }

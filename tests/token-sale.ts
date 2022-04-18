@@ -121,7 +121,7 @@ describe("token-sale", () => {
         expect(`${pool.tradingDuration}`).to.be.eq(`${tradingDuration}`);
         expect(`${pool.tokenPrice}`).to.be.eq(`${initialTokenPrice}`);
         expect(`${pool.tokensPerRound}`).to.be.eq(`${tokensPerRound}`);
-        expect(`${pool.latsRoundTradingAmount}`).to.be.eq(`${0}`);
+        expect(`${pool.lastRoundTradingAmount}`).to.be.eq(`${0}`);
 
         poolRentBalance = new anchor.BN((await connection.getAccountInfo(poolPDA)).lamports);
     });
@@ -183,8 +183,8 @@ describe("token-sale", () => {
         // TODO check pool.roundStartAt is near the current time
     });
 
-    const amountToSellFirst = new anchor.BN(2);
-    const amountToSellSecond = new anchor.BN(3);
+    const amountToSellFirst = new anchor.BN(4);
+    const amountToSellSecond = new anchor.BN(5);
     const priceForTokenFirst = new anchor.BN(0.12 * LAMPORTS_PER_SOL);
     const priceForTokenSecond = new anchor.BN(0.13 * LAMPORTS_PER_SOL);
     let placedOrderFirst: PlacedOrder;
@@ -210,7 +210,7 @@ describe("token-sale", () => {
     });
 
     it("Buy tokens from other traders", async () => {
-        const amountToBuy = new anchor.BN(1);
+        const amountToBuy = new anchor.BN(2);
         const buyer: Signer = buyerThird;
         const buyerTokenAccount: PublicKey = buyerThirdATA.address;
         const placedOrder: PlacedOrder = placedOrderFirst;
@@ -219,10 +219,15 @@ describe("token-sale", () => {
         const orderTokenVaultBefore = await getTokenAccount(connection, placedOrder.tokenVault);
         const orderOwnerAccountBefore = await anchor.getProvider().connection.getAccountInfo(placedOrder.owner);
 
-        await redeemOrderRPC(amountToBuy, buyer, placedOrder);
+        const halfAmountToBuy = amountToBuy.div(new anchor.BN(2));
+        await redeemOrderRPC(halfAmountToBuy, buyer, placedOrder);
+        await redeemOrderRPC(halfAmountToBuy, buyer, placedOrder);
 
         // Checking token balances
         const order = await program.account.order.fetch(placedOrder.address);
+        console.log("amountToBuy: ", amountToBuy.toNumber());
+        console.log("orderBefore.tokenAmount: ", order.tokenAmount.toNumber());
+        console.log("order.tokenAmount: ", order.tokenAmount.toNumber());
         expect(`${order.tokenAmount}`).to.be.eq(`${orderBefore.tokenAmount.sub(amountToBuy)}`);
         await expectTokenBalance(
             order.tokenVault,
@@ -234,6 +239,10 @@ describe("token-sale", () => {
         const expectedLamportsIncome = orderBefore.tokenPrice.mul(amountToBuy).toNumber();
         const orderOwnerAccount = await anchor.getProvider().connection.getAccountInfo(placedOrder.owner);
         expect(orderOwnerAccount.lamports - orderOwnerAccountBefore.lamports).to.be.eq(expectedLamportsIncome);
+
+        // Checking total trading amount
+        const pool = await program.account.poolAccount.fetch(poolPDA);
+        expect(`${pool.lastRoundTradingAmount}`).to.be.eq(`${expectedLamportsIncome}`);
     });
 
 

@@ -28,4 +28,10 @@ pub enum ErrorCode {
     TradingCannotBeStopped,
     #[msg("IDO is over.")]
     IDOOver,
+    #[msg("Minimal amount of tokens to buy is 1")]
+    BuyingToFewTokens,
+    #[msg("Minimal amount of tokens to sell is 1")]
+    SellingToFewTokens,
+    #[msg("Token price couldn't be zero")]
+    TokenPriceZero,
 }

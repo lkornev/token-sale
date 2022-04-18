@@ -153,6 +153,9 @@ pub struct RedeemOrder<'info> {
 }
 
 #[derive(Accounts)]
+pub struct CloseOrder {}
+
+#[derive(Accounts)]
 pub struct SwitchToBuying<'info> {
     #[account(
         mut,
