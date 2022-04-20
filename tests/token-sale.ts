@@ -8,20 +8,16 @@ import {
 import {
     PublicKey,
     SystemProgram,
-    Keypair,
     Connection,
     Signer, LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
 import {
     createMint,
     TOKEN_PROGRAM_ID,
-    createAccount as createTokenAccount,
     getOrCreateAssociatedTokenAccount,
     Account as TokenAccount,
     mintTo,
     getAccount as getTokenAccount,
-    createApproveInstruction,
-    NATIVE_MINT,
     ASSOCIATED_TOKEN_PROGRAM_ID,
     getAssociatedTokenAddress,
 } from '@solana/spl-token';
@@ -65,12 +61,16 @@ describe("token-sale", () => {
         // 1 Token = 100_000_000 Lamports = 0.1 SOL
         initialTokenPrice = new anchor.BN(0.1 * LAMPORTS_PER_SOL),
         tokensPerRound = new anchor.BN(10_000),
-        amountForSale = new anchor.BN(100_00);
+        amountForSale = new anchor.BN(100_00),
+        /// The coefficients that define the value of the token in the next buying round
+        /// using the formula: nextTokenPrice = tokenPrice * coeffA + coeffB
+        coeffA = 1.2,
+        coeffB = 0.01 * LAMPORTS_PER_SOL;
 
     let poolPDA: PublicKey,
-        nowBn: anchor.BN,
-        roundStartAt: anchor.BN,
-        endAt: anchor.BN,
+        now: number,
+        roundStartAt: number,
+        endAt: number,
         poolRentBalance: anchor.BN;
 
     let vaultSelling: PublicKey;
@@ -84,9 +84,9 @@ describe("token-sale", () => {
 
         vaultSelling = await getAssociatedTokenAddress(sellingMint, poolPDA, true);
 
-        nowBn = new anchor.BN(Date.now() / 1000);
-        roundStartAt = nowBn.add(new anchor.BN(5));
-        endAt = nowBn.add(new anchor.BN(30));
+        now = Math.floor(Date.now() / 1000);
+        roundStartAt = now + 5;
+        endAt = now + 30;
 
         await program.methods.initialize(
             roundStartAt,
@@ -97,6 +97,8 @@ describe("token-sale", () => {
             tokensPerRound,
             poolBump,
             amountForSale,
+            coeffA,
+            coeffB,
         ).accounts({
             poolAccount: poolPDA,
             distributionAuthority: owner.publicKey,
@@ -149,7 +151,7 @@ describe("token-sale", () => {
         expect(`${buyerThirdATA.amount}`).to.be.eq(`${0}`);
     });
 
-    const firstTraderBuy = new anchor.BN(5);
+    const firstTraderBuy = new anchor.BN(4);
     const secondTraderBuy = new anchor.BN(10);
 
     it("Buys tokens from the program", async () => {
@@ -165,7 +167,7 @@ describe("token-sale", () => {
 
     it("Switches to trading round", async () => {
         // Wait until the current round is over.
-        let currentRoundEndsAt = (roundStartAt.toNumber() + buyingDuration) * 1000;
+        let currentRoundEndsAt = (roundStartAt + buyingDuration) * 1000;
         if (Date.now() < currentRoundEndsAt) {
             await sleep(currentRoundEndsAt - Date.now() + 1000);
         }
@@ -183,7 +185,7 @@ describe("token-sale", () => {
         // TODO check pool.roundStartAt is near the current time
     });
 
-    const amountToSellFirst = new anchor.BN(4);
+    const amountToSellFirst = new anchor.BN(2);
     const amountToSellSecond = new anchor.BN(5);
     const priceForTokenFirst = new anchor.BN(0.12 * LAMPORTS_PER_SOL);
     const priceForTokenSecond = new anchor.BN(0.13 * LAMPORTS_PER_SOL);
@@ -210,7 +212,7 @@ describe("token-sale", () => {
     });
 
     it("Buy tokens from other traders", async () => {
-        const amountToBuy = new anchor.BN(2);
+        const amountToBuy = amountToSellFirst;
         const buyer: Signer = buyerThird;
         const buyerTokenAccount: PublicKey = buyerThirdATA.address;
         const placedOrder: PlacedOrder = placedOrderFirst;
@@ -225,9 +227,6 @@ describe("token-sale", () => {
 
         // Checking token balances
         const order = await program.account.order.fetch(placedOrder.address);
-        console.log("amountToBuy: ", amountToBuy.toNumber());
-        console.log("orderBefore.tokenAmount: ", order.tokenAmount.toNumber());
-        console.log("order.tokenAmount: ", order.tokenAmount.toNumber());
         expect(`${order.tokenAmount}`).to.be.eq(`${orderBefore.tokenAmount.sub(amountToBuy)}`);
         await expectTokenBalance(
             order.tokenVault,
@@ -236,13 +235,16 @@ describe("token-sale", () => {
         await expectTokenBalance(buyerTokenAccount, amountToBuy);
 
         // Checking the order's owner lamport balance
-        const expectedLamportsIncome = orderBefore.tokenPrice.mul(amountToBuy).toNumber();
+        const rentForTokenAcc = await connection.getMinimumBalanceForRentExemption(165);
+        const expectedLamportsTrade = orderBefore.tokenPrice.mul(amountToBuy).toNumber()
+        // The buyer bought all tokens form the order, so the owner get the rent tokens back
+        const expectedLamportsIncome = expectedLamportsTrade + rentForTokenAcc;
         const orderOwnerAccount = await anchor.getProvider().connection.getAccountInfo(placedOrder.owner);
         expect(orderOwnerAccount.lamports - orderOwnerAccountBefore.lamports).to.be.eq(expectedLamportsIncome);
 
         // Checking total trading amount
         const pool = await program.account.poolAccount.fetch(poolPDA);
-        expect(`${pool.lastRoundTradingAmount}`).to.be.eq(`${expectedLamportsIncome}`);
+        expect(`${pool.lastRoundTradingAmount}`).to.be.eq(`${expectedLamportsTrade}`);
     });
 
 
@@ -250,10 +252,7 @@ describe("token-sale", () => {
     async function redeemOrderRPC(amountToBuy: anchor.BN, buyer: Signer, placedOrder: PlacedOrder) {
         const buyerTokenAccount: PublicKey = await getAssociatedTokenAddress(sellingMint, buyer.publicKey);
 
-        await program.methods
-            .redeemOrder(
-                amountToBuy,
-            )
+        await program.methods.redeemOrder(amountToBuy)
             .accounts({
                 poolAccount: poolPDA,
                 sellingMint,
@@ -371,8 +370,13 @@ describe("token-sale", () => {
     }
 
     async function expectTokenBalance(tokenAcc: PublicKey, expectedBalance: anchor.BN) {
-        let acc = await getTokenAccount(connection, tokenAcc);
-        expect(`${acc.amount}`).to.be.eq(`${expectedBalance}`);
+        try {
+            let acc = await getTokenAccount(connection, tokenAcc);
+            expect(`${acc.amount}`).to.be.eq(`${expectedBalance}`);
+        } catch (err) {
+            // account is deleted. So it has zero tokens ;)
+            expect(`${0}`).to.be.eq(`${expectedBalance}`);
+        }
     }
 });
 

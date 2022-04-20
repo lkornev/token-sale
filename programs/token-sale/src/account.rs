@@ -1,4 +1,6 @@
 use anchor_lang::prelude::*;
+use crate::error::ErrorCode;
+use crate::Round;
 
 /// The main state of the program
 #[account]
@@ -14,7 +16,7 @@ pub struct PoolAccount {
     /// The vault with selling tokens.
     pub vault_selling: Pubkey,
     /// UNIX timestamp when the selling can be terminated
-    pub end_at: u64,
+    pub end_at: u32,
     /// Seconds to pass before the end of the sales round
     pub buying_duration: u32,
     /// Seconds to pass before the end of the trade round
@@ -26,11 +28,15 @@ pub struct PoolAccount {
     /// The tokens for sale in a particular round than not sold will be burned.
     pub tokens_per_round: u64,
     /// Could be selling round (0) or trading round (1)
-    pub current_round: u8, // enum Round
+    pub current_round: Round,
     /// UNIX timestamp when the current round started begins
-    pub round_start_at: u64,
+    pub round_start_at: u32,
     /// Amount of lamports raised in the last trading round
     pub last_round_trading_amount: u64,
+    /// The coefficients that define the value of the token in the next buying round
+    /// using the formula: next_token_price = token_price * coeff_a + coeff_b
+    pub coeff_a: u32,
+    pub coeff_b: u32,
     /// The list of selling tokens orders
     pub orders: Vec<OrderAddress>,
 }
@@ -39,8 +45,16 @@ pub struct PoolAccount {
 pub const MAX_ORDERS_NUM: usize = 100;
 
 impl PoolAccount {
-    pub const SPACE: usize = 1 + 32 * 5 + 8 + 8 + 4 + 4 + 8 + 8 + 1 + 8
+    pub const SPACE: usize = 1 + 32 * 5 + 8 + 4 + 4 + 8 + 8 + 1 + 4 + 8 + 4 + 4
         + (OrderAddress::SPACE * MAX_ORDERS_NUM + 24);
+
+    pub fn remove_order(&mut self, order_address: &Pubkey) -> Result<OrderAddress> {
+        let index = self.orders.iter().position(|x| &x.pubkey == order_address);
+        match index {
+            Some(index) => Ok(self.orders.remove(index)),
+            None => err!(ErrorCode::OrderNotFoundInPool),
+        }
+    }
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]

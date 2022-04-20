@@ -1,4 +1,4 @@
-export enum Round {
-    Buying = 0,
-    Trading = 1,
+export const Round = {
+    Buying: { buying: {} },
+    Trading: { trading: {} },
 }

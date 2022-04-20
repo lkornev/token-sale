@@ -34,4 +34,6 @@ pub enum ErrorCode {
     SellingToFewTokens,
     #[msg("Token price couldn't be zero")]
     TokenPriceZero,
+    #[msg("The order is not found in the pool account")]
+    OrderNotFoundInPool,
 }
