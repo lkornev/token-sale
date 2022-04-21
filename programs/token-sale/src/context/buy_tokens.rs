@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, TokenAccount, Token, Mint, transfer, Transfer};
-use anchor_spl::associated_token::AssociatedToken;
+use anchor_spl::token::{TokenAccount, Token, Mint, transfer, Transfer};
 use crate::account::*;
+use crate::Tokens;
 
 #[derive(Accounts)]
 pub struct BuyTokens<'info> {
@@ -29,9 +29,8 @@ pub struct BuyTokens<'info> {
     pub clock: Sysvar<'info, Clock>,
 }
 
-
 impl<'info> BuyTokens<'info> {
-    pub fn send_tokens_from_pool_to_buyer(&self, tokens_amount: u64) -> Result<()> {
+    pub fn send_tokens_from_pool_to_buyer(&self, tokens_amount: Tokens) -> Result<()> {
         let seeds = &[
             self.selling_mint.to_account_info().key.as_ref(),
             &[self.pool_account.bump]
@@ -47,7 +46,7 @@ impl<'info> BuyTokens<'info> {
                 },
                 &[&seeds[..]]
             ),
-            tokens_amount
+            tokens_amount.into()
         )
     }
 }

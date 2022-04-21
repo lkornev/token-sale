@@ -1,6 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, TokenAccount, Token, Mint, transfer, Transfer};
-use anchor_spl::associated_token::AssociatedToken;
+use anchor_spl::token::{TokenAccount, Token, Mint, transfer, Transfer};
 use crate::account::*;
 
 #[derive(Accounts)]

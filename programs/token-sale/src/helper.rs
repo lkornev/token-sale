@@ -1,13 +1,11 @@
 use anchor_lang::prelude::*;
-use crate::account::*;
-use crate::context::*;
-use anchor_spl::token::{self, CloseAccount, Transfer, transfer};
+use crate::Lamports;
 
-pub fn send_lamports<'a>(from: AccountInfo<'a>, to: AccountInfo<'a>, amount: u64) -> Result<()> {
+pub fn send_lamports<'a>(from: AccountInfo<'a>, to: AccountInfo<'a>, amount: Lamports) -> Result<()> {
     let ix = anchor_lang::solana_program::system_instruction::transfer(
         &from.key(),
         &to.key(),
-        amount,
+        amount.into(),
     );
 
     anchor_lang::solana_program::program::invoke(

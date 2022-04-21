@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
-use crate::error::ErrorCode;
+use crate::ErrorCode;
 use crate::Round;
+use crate::currency::{Tokens, Lamports};
 
 /// The main state of the program
 #[account]
@@ -32,12 +33,13 @@ pub struct PoolAccount {
     /// UNIX timestamp when the current round started begins
     pub round_start_at: u32,
     /// Amount of lamports raised in the last trading round
-    pub last_round_trading_amount: u64,
+    pub last_round_trading_amount: Lamports,
     /// The coefficients that define the value of the token in the next buying round
     /// using the formula: next_token_price = token_price * coeff_a + coeff_b
     pub coeff_a: f32,
     pub coeff_b: u32,
     /// The list of selling tokens orders
+    /// https://book.anchor-lang.com/anchor_references/space.html
     pub orders: Vec<OrderAddress>,
 }
 
@@ -45,7 +47,7 @@ pub const MAX_ORDERS_NUM: usize = 100;
 
 impl PoolAccount {
     pub const SPACE: usize = 1 + 32 * 4 + 4 * 4 + 8 + 1 + 4 + 8 + 4 + 4
-        + (OrderAddress::SPACE * MAX_ORDERS_NUM + 24);
+        + (OrderAddress::SPACE * MAX_ORDERS_NUM + 4);
 
     pub fn remove_order(&mut self, order_address: &Pubkey) -> Result<OrderAddress> {
         let index = self.orders.iter().position(|x| &x.pubkey == order_address);
@@ -80,7 +82,7 @@ pub struct Order {
     /// The price for one token
     pub token_price: u64,
     /// Amount of tokens inside token_vault
-    pub token_amount: u64,
+    pub token_amount: Tokens,
 }
 
 impl Order {

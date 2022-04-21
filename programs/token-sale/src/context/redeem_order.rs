@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, TokenAccount, Token, Mint, CloseAccount, transfer, Transfer};
-use anchor_spl::associated_token::AssociatedToken;
 use crate::account::*;
+use crate::Tokens;
 
 #[derive(Accounts)]
 pub struct RedeemOrder<'info> {
@@ -44,7 +44,7 @@ pub struct RedeemOrder<'info> {
 
 
 impl<'info> RedeemOrder<'info> {
-    pub fn send_tokens_from_order_to_buyer(&self, tokens_amount: u64) -> Result<()> {
+    pub fn send_tokens_from_order_to_buyer(&self, tokens_amount: Tokens) -> Result<()> {
         let seeds = &[
             Order::PDA_SEED,
             self.order.owner.as_ref(),
@@ -61,7 +61,7 @@ impl<'info> RedeemOrder<'info> {
                 },
                 &[&seeds[..]]
             ),
-            tokens_amount
+            tokens_amount.into()
         )
     }
 
