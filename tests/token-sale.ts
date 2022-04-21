@@ -59,7 +59,7 @@ describe("token-sale", () => {
     const buyingDuration = 3,
         tradingDuration = 5,
         // 1 Token = 100_000_000 Lamports = 0.1 SOL
-        initialTokenPrice = new anchor.BN(0.1 * LAMPORTS_PER_SOL),
+        initialTokenPrice = 0.1 * LAMPORTS_PER_SOL,
         tokensPerRound = new anchor.BN(10_000),
         amountForSale = new anchor.BN(100_00),
         /// The coefficients that define the value of the token in the next buying round
@@ -109,6 +109,7 @@ describe("token-sale", () => {
             tokenProgram: TOKEN_PROGRAM_ID,
             associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
             rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+            clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
         }).signers([owner]).rpc();
 
         const pool = await program.account.poolAccount.fetch(poolPDA);
@@ -236,7 +237,7 @@ describe("token-sale", () => {
 
         // Checking the order's owner lamport balance
         const rentForTokenAcc = await connection.getMinimumBalanceForRentExemption(165);
-        const expectedLamportsTrade = orderBefore.tokenPrice.mul(amountToBuy).toNumber()
+        const expectedLamportsTrade = +orderBefore.tokenPrice * amountToBuy.toNumber()
         // The buyer bought all tokens form the order, so the owner get the rent tokens back
         const expectedLamportsIncome = expectedLamportsTrade + rentForTokenAcc;
         const orderOwnerAccount = await anchor.getProvider().connection.getAccountInfo(placedOrder.owner);

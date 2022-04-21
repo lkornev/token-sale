@@ -20,23 +20,22 @@ pub mod token_sale {
         end_at: u32,
         buying_duration: u32,
         trading_duration: u32,
-        token_price: u64,
+        token_price: u32,
         tokens_per_round: u64,
         pool_bump: u8,
         amount_to_sell: u64,
-        coeff_a: u32,
+        coeff_a: f32,
         coeff_b: u32,
     ) -> Result<()> {
-        if token_price == 0 {
-            return err!(ErrorCode::TokenPriceZero);
-        }
+        require!(token_price != 0, ErrorCode::TokenPriceZero);
 
-        if amount_to_sell > ctx.accounts.tokens_for_distribution.amount {
-            return err!(ErrorCode::NotEnoughTokensForSale);
-        }
+        let tokens_for_sale = ctx.accounts.tokens_for_distribution.amount;
+        require!(amount_to_sell <= tokens_for_sale, ErrorCode::NotEnoughTokensForSale);
 
-        // TODO check round_start_at is in the future or now
-        // TODO check end_at is in the future and more than one full period
+        let now = ctx.accounts.clock.unix_timestamp as u32;
+        let full_cycle = now + buying_duration + trading_duration;
+        require!(round_start_at >= now, ErrorCode::FirstRoundAlreadyStarted);
+        require!(end_at >= full_cycle, ErrorCode::EndsBeforeFullCircle);
 
         let pool_account = &mut ctx.accounts.pool_account;
 
@@ -64,23 +63,16 @@ pub mod token_sale {
         ctx: Context<BuyTokens>,
         tokens_amount: u64, // TODO use NewType pattern to distinguish Tokens and Lamports (and conversion).
     ) -> Result<()> {
-        let pool = &mut ctx.accounts.pool_account;
         let vault_selling = &mut ctx.accounts.vault_selling;
+        require!(vault_selling.amount >= tokens_amount, ErrorCode::InsufficientTokensInVault);
+
+        let token_price = ctx.accounts.pool_account.token_price;
+        let lamports_amount = tokens_amount * token_price as u64;
+        let buyer_lamports = ** ctx.accounts.buyer.to_account_info().try_borrow_lamports()?;
+        require!(buyer_lamports >= lamports_amount, ErrorCode::InsufficientLamportsToBuyTokens);
+
         let buyer = &mut ctx.accounts.buyer;
-
-        let token_price = pool.token_price;
-        let token_program = &ctx.accounts.token_program;
-
-        if vault_selling.amount < tokens_amount {
-            return err!(ErrorCode::InsufficientTokensInVault);
-        }
-
-        let lamports_amount = tokens_amount * token_price;
-
-        if **buyer.to_account_info().try_borrow_lamports()? < lamports_amount {
-            return err!(ErrorCode::InsufficientLamportsToBuyTokens);
-        }
-
+        let pool = &mut ctx.accounts.pool_account;
         send_lamports(buyer.to_account_info(), pool.to_account_info(), lamports_amount)?;
         ctx.accounts.send_tokens_from_pool_to_buyer(tokens_amount)?;
 
@@ -92,7 +84,6 @@ pub mod token_sale {
         let pool = &mut ctx.accounts.pool_account;
         pool.round_start_at = ctx.accounts.clock.unix_timestamp as u32;
         pool.current_round = Round::Trading;
-        // Store the new round trading amount. For now it's zero.
         pool.last_round_trading_amount = 0;
 
         Ok(())
@@ -105,13 +96,10 @@ pub mod token_sale {
         amount_to_sell: u64,
         price_for_token: u64,
     ) -> Result<()> {
-        if amount_to_sell < 1 {
-            return err!(ErrorCode::SellingToFewTokens);
-        }
+        require!(amount_to_sell >= 1, ErrorCode::SellingToFewTokens);
 
-        if ctx.accounts.seller_token_account.amount < amount_to_sell {
-            return err!(ErrorCode::InsufficientTokensInVault);
-        }
+        let seller_tokens = ctx.accounts.seller_token_account.amount;
+        require!(seller_tokens > amount_to_sell, ErrorCode::InsufficientTokensInVault);
 
         ctx.accounts.send_tokens_from_seller_to_order(amount_to_sell)?;
 
@@ -122,10 +110,7 @@ pub mod token_sale {
         order.owner = ctx.accounts.seller.key();
         order.token_amount = amount_to_sell;
 
-        ctx.accounts.pool_account.orders.push(OrderAddress {
-            pubkey: *order.to_account_info().unsigned_key(),
-            bump: order_bump,
-        });
+        ctx.accounts.pool_account.add_order(order.to_account_info().key(), order_bump);
 
         Ok(())
     }
@@ -136,20 +121,14 @@ pub mod token_sale {
         tokens_amount: u64, // amount of tokens to buy
     ) -> Result<()> {
         let is_buying_everything = ctx.accounts.order_token_vault.amount == tokens_amount;
+        require!(tokens_amount >= 1, ErrorCode::BuyingToFewTokens);
 
-        if tokens_amount < 1 {
-            return err!(ErrorCode::BuyingToFewTokens);
-        }
-
-        if ctx.accounts.order_token_vault.amount < tokens_amount {
-            return err!(ErrorCode::InsufficientTokensInVault);
-        }
+        let order_tokens = ctx.accounts.order_token_vault.amount;
+        require!(order_tokens >= tokens_amount, ErrorCode::InsufficientTokensInVault);
 
         let lamports_amount = tokens_amount * ctx.accounts.order.token_price;
-
-        if **ctx.accounts.buyer.to_account_info().try_borrow_lamports()? < lamports_amount {
-            return err!(ErrorCode::InsufficientLamportsToBuyTokens);
-        }
+        let buyer_lamports = **ctx.accounts.buyer.to_account_info().try_borrow_lamports()?;
+        require!(buyer_lamports >= lamports_amount, ErrorCode::InsufficientLamportsToBuyTokens);
 
         // Send lamports to the order's owner, send tokens to the buyer
         send_lamports(ctx.accounts.buyer.to_account_info(), ctx.accounts.order_owner.to_account_info(), lamports_amount)?;
@@ -180,18 +159,18 @@ pub mod token_sale {
         pool.round_start_at = ctx.accounts.clock.unix_timestamp as u32;
         pool.current_round = Round::Buying;
 
-        const PRECISENESS: u32 = 1000;
+        const PRECISENESS: u32 = 10000;
         pool.token_price = pool.token_price
-            .checked_mul((pool.coeff_a * PRECISENESS) as u64).unwrap()
-            .checked_div(PRECISENESS as u64).unwrap()
-            .checked_add(pool.coeff_b as u64).unwrap();
+            .checked_mul((pool.coeff_a * PRECISENESS as f32) as u32).unwrap()
+            .checked_div(PRECISENESS).unwrap()
+            .checked_add(pool.coeff_b).unwrap();
 
         Ok(())
     }
 
     /// The program could be terminated after the `pool_account.end_at` time has passed
     /// or if no one deal have taken place during the last trade round.
-    pub fn terminate(ctx: Context<End>) -> Result<()> {
+    pub fn terminate(ctx: Context<Terminate>) -> Result<()> {
         // TODO withdraw tokens from vault_payment. Sign by pool_account.owner
         // TODO burn all unsold tokens
         // TODO destroy all accounts and the program itself

@@ -36,4 +36,8 @@ pub enum ErrorCode {
     TokenPriceZero,
     #[msg("The order is not found in the pool account")]
     OrderNotFoundInPool,
+    #[msg("The first round must start in the future or now")]
+    FirstRoundAlreadyStarted,
+    #[msg("The IDO must be at least full circle long")]
+    EndsBeforeFullCircle
 }
