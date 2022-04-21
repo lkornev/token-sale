@@ -1,7 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, TokenAccount, Token, Mint};
+use anchor_spl::token::{self, TokenAccount, Token, Mint, transfer, Transfer};
 use anchor_spl::associated_token::AssociatedToken;
 use crate::account::*;
+use crate::round::Round;
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
@@ -36,4 +37,18 @@ pub struct Initialize<'info> {
     pub rent: Sysvar<'info, Rent>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
+}
+
+impl<'info> Initialize<'info> {
+    pub fn send_tokens_to_pool(&self, amount_to_sell: u64) -> Result<()> {
+        let cpi_accounts = Transfer {
+            from: self.tokens_for_distribution.to_account_info(),
+            to: self.vault_selling.to_account_info(),
+            authority: self.distribution_authority.to_account_info(),
+        };
+        transfer(
+            CpiContext::new(self.token_program.to_account_info(), cpi_accounts),
+            amount_to_sell
+        )
+    }
 }

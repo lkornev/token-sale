@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, TokenAccount, Token, Mint};
+use anchor_spl::token::{self, TokenAccount, Token, Mint, transfer, Transfer};
 use anchor_spl::associated_token::AssociatedToken;
 use crate::account::*;
 
@@ -39,4 +39,27 @@ pub struct CloseOrder<'info> {
     pub owner_token_vault: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
+}
+
+impl<'info> CloseOrder<'info> {
+    pub fn sent_tokens_from_order_to_owner(&self) -> Result<()> {
+        let seeds = &[
+            Order::PDA_SEED,
+            self.order.owner.as_ref(),
+            &[self.order.bump]
+        ];
+
+        transfer(
+            CpiContext::new_with_signer(
+                self.token_program.to_account_info(),
+                Transfer {
+                    from: self.order_token_vault.to_account_info(),
+                    to: self.owner_token_vault.to_account_info(),
+                    authority: self.order.to_account_info(),
+                },
+                &[&seeds[..]]
+            ),
+            self.order_token_vault.amount
+        )
+    }
 }

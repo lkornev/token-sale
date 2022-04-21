@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, TokenAccount, Token, Mint};
+use anchor_spl::token::{self, TokenAccount, Token, Mint, transfer, Transfer};
 use anchor_spl::associated_token::AssociatedToken;
 use crate::account::*;
 
@@ -41,4 +41,18 @@ pub struct PlaceOrder<'info> {
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
     pub clock: Sysvar<'info, Clock>,
+}
+
+impl<'info> PlaceOrder<'info> {
+    pub fn send_tokens_from_seller_to_order(&self, amount_to_sell: u64) -> Result<()> {
+        let cpi_accounts = Transfer {
+            from:  self.seller_token_account.to_account_info(),
+            to: self.order_token_vault.to_account_info(),
+            authority: self.seller.to_account_info(),
+        };
+        transfer(
+            CpiContext::new(self.token_program.to_account_info(), cpi_accounts),
+            amount_to_sell
+        )
+    }
 }

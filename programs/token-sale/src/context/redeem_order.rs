@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, TokenAccount, Token, Mint};
+use anchor_spl::token::{self, TokenAccount, Token, Mint, CloseAccount, transfer, Transfer};
 use anchor_spl::associated_token::AssociatedToken;
 use crate::account::*;
 
@@ -40,4 +40,53 @@ pub struct RedeemOrder<'info> {
     pub token_program: Program<'info, Token>,
     pub clock: Sysvar<'info, Clock>,
     pub system_program: Program<'info, System>,
+}
+
+
+impl<'info> RedeemOrder<'info> {
+    pub fn send_tokens_from_order_to_buyer(&self, tokens_amount: u64) -> Result<()> {
+        let seeds = &[
+            Order::PDA_SEED,
+            self.order.owner.as_ref(),
+            &[self.order.bump]
+        ];
+
+        transfer(
+            CpiContext::new_with_signer(
+                self.token_program.to_account_info(),
+                Transfer {
+                    from: self.order_token_vault.to_account_info(),
+                    to: self.buyer_token_account.to_account_info(),
+                    authority: self.order.to_account_info(),
+                },
+                &[&seeds[..]]
+            ),
+            tokens_amount
+        )
+    }
+
+    /// Close order account, order token account and remove order from the pool orders storage
+    pub fn close_order(&mut self) -> Result<()> {
+        self.pool_account.remove_order(self.order.to_account_info().key)?;
+
+        // self.accounts.order.to_account_info().close(); TODO close order account
+
+        let seeds = &[
+            Order::PDA_SEED,
+            self.order.owner.as_ref(),
+            &[self.order.bump]
+        ];
+
+        token::close_account(
+            CpiContext::new_with_signer(
+                self.token_program.to_account_info(),
+                CloseAccount {
+                    account: self.order_token_vault.to_account_info(),
+                    destination: self.order_owner.to_account_info(),
+                    authority: self.order.to_account_info(),
+                },
+                &[&seeds[..]]
+            ),
+        )
+    }
 }

@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, TokenAccount, Token, Mint};
+use anchor_spl::token::{self, TokenAccount, Token, Mint, transfer, Transfer};
 use anchor_spl::associated_token::AssociatedToken;
 use crate::account::*;
 
@@ -27,4 +27,27 @@ pub struct BuyTokens<'info> {
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
     pub clock: Sysvar<'info, Clock>,
+}
+
+
+impl<'info> BuyTokens<'info> {
+    pub fn send_tokens_from_pool_to_buyer(&self, tokens_amount: u64) -> Result<()> {
+        let seeds = &[
+            self.selling_mint.to_account_info().key.as_ref(),
+            &[self.pool_account.bump]
+        ];
+
+        transfer(
+            CpiContext::new_with_signer(
+                self.token_program.to_account_info(),
+                Transfer {
+                    from: self.vault_selling.to_account_info(),
+                    to: self.buyer_token_account.to_account_info(),
+                    authority: self.pool_account.to_account_info(),
+                },
+                &[&seeds[..]]
+            ),
+            tokens_amount
+        )
+    }
 }

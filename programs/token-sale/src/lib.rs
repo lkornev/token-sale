@@ -3,10 +3,10 @@ use anchor_spl::token::{self, TokenAccount, Token, Mint};
 use anchor_spl::associated_token::AssociatedToken;
 mod account; use account::*;
 mod context; use context::*;
-mod error; use error::ErrorCode;
-mod round; use round::*;
 mod access_control; use access_control::*;
-mod send_assets; use send_assets::*;
+mod error; use error::ErrorCode;
+mod round; use round::Round;
+mod helper; use helper::send_lamports;
 
 declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 
@@ -27,18 +27,16 @@ pub mod token_sale {
         coeff_a: f32,
         coeff_b: u32,
     ) -> Result<()> {
-        require!(token_price != 0, ErrorCode::TokenPriceZero);
-
         let tokens_for_sale = ctx.accounts.tokens_for_distribution.amount;
-        require!(amount_to_sell <= tokens_for_sale, ErrorCode::NotEnoughTokensForSale);
-
         let now = ctx.accounts.clock.unix_timestamp as u32;
         let full_cycle = now + buying_duration + trading_duration;
+
+        require!(token_price != 0, ErrorCode::TokenPriceZero);
+        require!(amount_to_sell <= tokens_for_sale, ErrorCode::NotEnoughTokensForSale);
         require!(round_start_at >= now, ErrorCode::FirstRoundAlreadyStarted);
         require!(end_at >= full_cycle, ErrorCode::EndsBeforeFullCircle);
 
         let pool_account = &mut ctx.accounts.pool_account;
-
         pool_account.bump = pool_bump;
         pool_account.owner = ctx.accounts.distribution_authority.key();
         pool_account.selling_mint = ctx.accounts.selling_mint.key();
@@ -61,20 +59,21 @@ pub mod token_sale {
     #[access_control(round_buying(&ctx.accounts.pool_account, &ctx.accounts.clock))]
     pub fn buy(
         ctx: Context<BuyTokens>,
-        tokens_amount: u64, // TODO use NewType pattern to distinguish Tokens and Lamports (and conversion).
+        amount_to_buy: u64, // TODO use NewType pattern to distinguish Tokens and Lamports (and conversion).
     ) -> Result<()> {
-        let vault_selling = &mut ctx.accounts.vault_selling;
-        require!(vault_selling.amount >= tokens_amount, ErrorCode::InsufficientTokensInVault);
-
+        let amount_for_sale = ctx.accounts.vault_selling.amount;
         let token_price = ctx.accounts.pool_account.token_price;
-        let lamports_amount = tokens_amount * token_price as u64;
+        let lamports_amount = amount_to_buy * token_price as u64;
         let buyer_lamports = ** ctx.accounts.buyer.to_account_info().try_borrow_lamports()?;
+
+        require!(amount_for_sale >= amount_to_buy, ErrorCode::InsufficientTokensInVault);
         require!(buyer_lamports >= lamports_amount, ErrorCode::InsufficientLamportsToBuyTokens);
 
         let buyer = &mut ctx.accounts.buyer;
         let pool = &mut ctx.accounts.pool_account;
+
         send_lamports(buyer.to_account_info(), pool.to_account_info(), lamports_amount)?;
-        ctx.accounts.send_tokens_from_pool_to_buyer(tokens_amount)?;
+        ctx.accounts.send_tokens_from_pool_to_buyer(amount_to_buy)?;
 
         Ok(())
     }
