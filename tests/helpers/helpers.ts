@@ -1,20 +1,13 @@
 import { 
-    PublicKey, 
-    SystemProgram, 
+    PublicKey,
     LAMPORTS_PER_SOL, 
     Keypair,
     Connection,
     Signer,
 } from '@solana/web3.js';
-import { 
-    createMint,
-    TOKEN_PROGRAM_ID, 
+import {
     getOrCreateAssociatedTokenAccount,
     Account as TokenAccount,
-    mintTo,
-    getAccount,
-    createApproveInstruction,
-    NATIVE_MINT,
 } from '@solana/spl-token';
 
 export async function createUserWithLamports(
@@ -30,6 +23,28 @@ export async function createUserWithLamports(
     return account;
 }
 
+export async function createUserWithATA(
+    connection: Connection,
+    mint: PublicKey,
+    lamports = 100
+): Promise<[Signer, TokenAccount]> {
+    let user = await createUserWithLamports(connection, lamports);
+    let ata = await getOrCreateAssociatedTokenAccount(
+        connection,
+        user,
+        mint,
+        user.publicKey
+    );
+
+    return Promise.all([user, ata]);
+}
+
 export async function sleep(ms) {
     await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function sleepTill(tillMs) {
+    if (Date.now() < tillMs) {
+        await sleep(tillMs - Date.now());
+    }
 }

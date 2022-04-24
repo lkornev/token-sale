@@ -64,29 +64,4 @@ impl<'info> RedeemOrder<'info> {
             tokens_amount.into()
         )
     }
-
-    /// Close order account, order token account and remove order from the pool orders storage
-    pub fn close_order(&mut self) -> Result<()> {
-        self.pool_account.remove_order(self.order.to_account_info().key)?;
-
-        // self.accounts.order.to_account_info().close(); TODO close order account
-
-        let seeds = &[
-            Order::PDA_SEED,
-            self.order.owner.as_ref(),
-            &[self.order.bump]
-        ];
-
-        token::close_account(
-            CpiContext::new_with_signer(
-                self.token_program.to_account_info(),
-                CloseAccount {
-                    account: self.order_token_vault.to_account_info(),
-                    destination: self.order_owner.to_account_info(),
-                    authority: self.order.to_account_info(),
-                },
-                &[&seeds[..]]
-            ),
-        )
-    }
 }

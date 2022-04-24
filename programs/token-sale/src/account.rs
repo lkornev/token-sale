@@ -49,10 +49,13 @@ impl PoolAccount {
     pub const SPACE: usize = 1 + 32 * 4 + 4 * 4 + 8 + 1 + 4 + 8 + 4 + 4
         + (OrderAddress::SPACE * MAX_ORDERS_NUM + 4);
 
-    pub fn remove_order(&mut self, order_address: &Pubkey) -> Result<OrderAddress> {
+    pub fn remove_order(&mut self, order_address: &Pubkey) -> Result<()> {
         let index = self.orders.iter().position(|x| &x.pubkey == order_address);
         match index {
-            Some(index) => Ok(self.orders.remove(index)),
+            Some(index) => {
+                self.orders.remove(index);
+                Ok(())
+            },
             None => err!(ErrorCode::OrderNotFoundInPool),
         }
     }

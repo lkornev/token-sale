@@ -118,7 +118,6 @@ pub mod token_sale {
         ctx: Context<RedeemOrder>,
         tokens_amount: Tokens, // amount of tokens to buy
     ) -> Result<()> {
-        // TODO let is_buying_everything = ctx.accounts.order_token_vault.amount == tokens_amount.into();
         require!(tokens_amount >= Tokens::new(1), ErrorCode::BuyingToFewTokens);
 
         let order_tokens = Tokens::new(ctx.accounts.order_token_vault.amount);
@@ -142,15 +141,12 @@ pub mod token_sale {
         let pool = &mut ctx.accounts.pool_account;
         pool.last_round_trading_amount += lamports_amount;
 
-        // TODO // Return rent-exempt lamports to the owner of the order by closing account
-        // if is_buying_everything { ctx.accounts.close_order()? }
-
         Ok(())
     }
 
     pub fn close_order(ctx: Context<CloseOrder>) -> Result<()> {
-        ctx.accounts.pool_account.remove_order(ctx.accounts.order.to_account_info().key)?;
-        ctx.accounts.sent_tokens_from_order_to_owner()
+        ctx.accounts.sent_tokens_from_order_to_owner()?;
+        ctx.accounts.pool_account.remove_order(ctx.accounts.order.to_account_info().key)
     }
 
     #[access_control(can_switch_to_buying_round(&ctx.accounts.pool_account, &ctx.accounts.clock))]

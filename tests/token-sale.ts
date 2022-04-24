@@ -1,28 +1,14 @@
 import * as anchor from "@project-serum/anchor";
 import { Program } from "@project-serum/anchor";
 import { TokenSale } from "../target/types/token_sale";
-import {
-    createUserWithLamports,
-    sleep,
-} from "./helpers";
-import {
-    PublicKey,
-    SystemProgram,
-    Connection,
-    Signer, LAMPORTS_PER_SOL,
-} from '@solana/web3.js';
-import {
-    createMint,
-    TOKEN_PROGRAM_ID,
-    getOrCreateAssociatedTokenAccount,
-    Account as TokenAccount,
-    mintTo,
-    getAccount as getTokenAccount,
-    ASSOCIATED_TOKEN_PROGRAM_ID,
-    getAssociatedTokenAddress,
-} from '@solana/spl-token';
-import { expect, assert } from 'chai';
-import { Round } from "./round";
+import { sleepTill } from "./helpers/helpers";
+import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { Round } from "./helpers/round";
+import { createCtx, Ctx } from "./helpers/ctx";
+import { OrderAddress, RPC } from "./helpers/rpc";
+import { CheckCtx } from "./helpers/check";
+import { expect } from "chai";
+import { getAccount as getTokenAccount } from "@solana/spl-token";
 
 describe("token-sale", () => {
     // Configure the client to use the local cluster.
@@ -30,369 +16,79 @@ describe("token-sale", () => {
 
     const program = anchor.workspace.TokenSale as Program<TokenSale>;
     const connection = new Connection("http://localhost:8899", 'recent');
-
-    let owner: Signer;
-    let sellingMint: PublicKey;
-    // Owner's ATA with tokens for IDO
-    let tokensForDistribution: TokenAccount;
-
-    it('Inits the state of the world', async  () => {
-        owner = await createUserWithLamports(connection, 1);
-        sellingMint = await createMint(
-            connection,
-            owner, // payer
-            owner.publicKey, // mintAuthority
-            owner.publicKey, // freezeAuthority
-            6 // decimals
-        );
-        tokensForDistribution = await getOrCreateAssociatedTokenAccount(connection, owner, sellingMint, owner.publicKey);
-        await mintTo(
-            connection,
-            owner,
-            sellingMint,
-            tokensForDistribution.address,
-            owner,
-            10_000,
-        );
-    });
-
-    const buyingDuration = 3,
-        tradingDuration = 5,
-        // 1 Token = 100_000_000 Lamports = 0.1 SOL
-        initialTokenPrice = 0.1 * LAMPORTS_PER_SOL,
-        tokensPerRound = new anchor.BN(5_000),
-        amountForSale = new anchor.BN(10_000),
-        /// The coefficients that define the value of the token in the next buying round
-        /// using the formula: nextTokenPrice = tokenPrice * coeffA + coeffB
-        coeffA = 1.2,
-        coeffB = 0.01 * LAMPORTS_PER_SOL;
-
-    let poolPDA: PublicKey,
-        now: number,
-        roundStartAt: number,
-        endAt: number,
-        poolRentBalance: anchor.BN;
-
-    let vaultSelling: PublicKey;
+    // The config that passed to every RPC test functions
+    let ctx: Ctx;
 
     it("Initializes!", async () => {
-        const [_poolPDA, poolBump] = await anchor.web3.PublicKey.findProgramAddress(
-            [sellingMint.toBuffer()],
-            program.programId
-        );
-        poolPDA = _poolPDA;
-
-        vaultSelling = await getAssociatedTokenAddress(sellingMint, poolPDA, true);
-
-        now = Math.floor(Date.now() / 1000);
-        roundStartAt = now + 5;
-        endAt = now + 30;
-
-        try {
-            await program.methods.initialize(
-                roundStartAt,
-                endAt,
-                buyingDuration,
-                tradingDuration,
-                initialTokenPrice,
-                tokensPerRound,
-                poolBump,
-                { tokens: amountForSale },
-                coeffA,
-                coeffB,
-            ).accounts({
-                poolAccount: poolPDA,
-                distributionAuthority: owner.publicKey,
-                tokensForDistribution: tokensForDistribution.address,
-                sellingMint,
-                vaultSelling,
-                systemProgram: SystemProgram.programId,
-                tokenProgram: TOKEN_PROGRAM_ID,
-                associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-                rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-                clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
-            }).signers([owner]).rpc();
-        } catch (e) {
-            console.error(e);
-        }
-
-        const pool = await program.account.poolAccount.fetch(poolPDA);
-        expect(`${pool.owner}`).to.be.eq(`${owner.publicKey}`);
-        expect(`${pool.sellingMint}`).to.be.eq(`${sellingMint}`);
-        expect(`${pool.bump}`).to.be.eq(`${poolBump}`);
-        expect(`${pool.vaultSelling}`).to.be.eq(`${vaultSelling}`);
-        expect(`${pool.currentRound}`).to.be.eq(`${Round.Buying}`);
-        expect(`${pool.roundStartAt}`).to.be.eq(`${roundStartAt}`);
-        expect(`${pool.endAt}`).to.be.eq(`${endAt}`);
-        expect(`${pool.buyingDuration}`).to.be.eq(`${buyingDuration}`);
-        expect(`${pool.tradingDuration}`).to.be.eq(`${tradingDuration}`);
-        expect(`${pool.tokenPrice}`).to.be.eq(`${initialTokenPrice}`);
-        expect(`${pool.tokensPerRound}`).to.be.eq(`${tokensPerRound}`);
-        expect(`${pool.lastRoundTradingAmount.lamports}`).to.be.eq(`${0}`);
-
-        poolRentBalance = new anchor.BN((await connection.getAccountInfo(poolPDA)).lamports);
+        ctx = await createCtx(connection, program);
+        await RPC.initialize(ctx);
+        await CheckCtx.poolInitialState(ctx);
     });
-
-    let buyerFirst: Signer;
-    let buyerFirstATA: TokenAccount;
-    let buyerSecond: Signer
-    let buyerSecondATA: TokenAccount;
-    let buyerThird: Signer;
-    let buyerThirdATA: TokenAccount;
-
-    it("Creates buyers and the ATAs", async () => {
-        let [user1, ata1] = await createUserWithATA(sellingMint);
-        let [user2, ata2] = await createUserWithATA(sellingMint);
-        let [user3, ata3] = await createUserWithATA(sellingMint);
-        buyerFirst = user1;
-        buyerFirstATA = ata1;
-        buyerSecond = user2;
-        buyerSecondATA = ata2;
-        buyerThird = user3;
-        buyerThirdATA = ata3;
-
-        expect(`${buyerFirstATA.amount}`).to.be.eq(`${0}`);
-        expect(`${buyerSecondATA.amount}`).to.be.eq(`${0}`);
-        expect(`${buyerThirdATA.amount}`).to.be.eq(`${0}`);
-    });
-
-    const firstTraderBuy = new anchor.BN(4);
-    const secondTraderBuy = new anchor.BN(10);
 
     it("Buys tokens from the program", async () => {
-        const tokenPriceBN = await getTokenPrice();
+        const firstTraderBuy = new anchor.BN(4),
+            secondTraderBuy = new anchor.BN(10);
+        const poolBalanceBefore = (await connection.getAccountInfo(ctx.accounts.pool.key)).lamports;
 
-        await buyTokens(firstTraderBuy, buyerFirst);
-        await buyTokens(secondTraderBuy, buyerSecond);
+        await RPC.buyTokens(ctx, ctx.traderFirst.signer, firstTraderBuy);
+        await RPC.buyTokens(ctx, ctx.traderSecond.signer, secondTraderBuy);
 
-        await expectPoolBalance((firstTraderBuy.add(secondTraderBuy)).mul(tokenPriceBN));
-        await expectTokenBalance(buyerFirstATA.address, firstTraderBuy);
-        await expectTokenBalance(buyerSecondATA.address, secondTraderBuy);
+        // The amount of lamports the program has to have after the first sales
+        const expectedAddedPoolBalance = ((firstTraderBuy.add(secondTraderBuy))
+            .mul(new anchor.BN(ctx.initialTokenPrice)));
+        await CheckCtx.lamportsBalance(ctx, ctx.accounts.pool.key, poolBalanceBefore, expectedAddedPoolBalance);
+
+        // Traders should receive their tokens
+        await CheckCtx.tokenBalance(ctx, ctx.traderFirst.ata, 0, firstTraderBuy);
+        await CheckCtx.tokenBalance(ctx, ctx.traderSecond.ata, 0, secondTraderBuy);
     });
 
     it("Switches to trading round", async () => {
-        // Wait until the current round is over.
-        let currentRoundEndsAt = (roundStartAt + buyingDuration) * 1000;
-        if (Date.now() < currentRoundEndsAt) {
-            await sleep(currentRoundEndsAt - Date.now() + 1000);
-        }
-
-        await program.methods.switchToTrading()
-            .accounts({
-                poolAccount: poolPDA,
-                clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
-            })
-            .rpc();
-
-        const pool = await program.account.poolAccount.fetch(poolPDA);
-
-        expect(`${pool.currentRound}`).to.be.eq(`${Round.Trading}`);
-        // TODO check pool.roundStartAt is near the current time
+        const currentRoundEndsAtMs = (ctx.roundStartAt + ctx.buyingDuration) * 1000;
+        await sleepTill(currentRoundEndsAtMs);
+        await RPC.switchToTrading(ctx);
+        await CheckCtx.currentRound(ctx, Round.Trading, Date.now());
     });
 
-    const amountToSellFirst = new anchor.BN(2);
-    const amountToSellSecond = new anchor.BN(5);
-    const priceForTokenFirst = new anchor.BN(0.12 * LAMPORTS_PER_SOL);
-    const priceForTokenSecond = new anchor.BN(0.13 * LAMPORTS_PER_SOL);
-    let placedOrderFirst: PlacedOrder;
-    let placedOrderSecond: PlacedOrder;
-
     it("Place orders for selling tokens", async () => {
-        // Place two orders
-        placedOrderFirst =  await placeOrderRPC(buyerFirst, amountToSellFirst, priceForTokenFirst);
-        placedOrderSecond = await placeOrderRPC(buyerSecond, amountToSellSecond, priceForTokenSecond);
+        const amountToSellFirst = new anchor.BN(2),
+            priceForTokenFirst = new anchor.BN(0.12 * LAMPORTS_PER_SOL),
+            amountToSellSecond = new anchor.BN(5),
+            priceForTokenSecond = new anchor.BN(0.13 * LAMPORTS_PER_SOL);
 
-        // Check pool
-        const pool = await program.account.poolAccount.fetch(poolPDA);
-        const orders = pool.orders as OrderAddress[];
+        const firstTraderBalanceBefore = await getTokenAccount(connection, ctx.traderFirst.ata);
+        const secondTraderBalanceBefore = await getTokenAccount(connection, ctx.traderSecond.ata);
+
+        const placedOrderFirst =  await RPC.placeOrder(ctx, ctx.traderFirst.signer, amountToSellFirst, priceForTokenFirst);
+        await CheckCtx.lastPlacedOrder(ctx, placedOrderFirst);
+        await CheckCtx.tokenBalance(ctx, ctx.traderFirst.ata, firstTraderBalanceBefore.amount, -amountToSellFirst);
+
+        const placedOrderSecond = await RPC.placeOrder(ctx, ctx.traderSecond.signer, amountToSellSecond, priceForTokenSecond);
+        await CheckCtx.lastPlacedOrder(ctx, placedOrderSecond);
+        await CheckCtx.tokenBalance(ctx, ctx.traderSecond.ata, secondTraderBalanceBefore.amount, -amountToSellSecond);
+
+        const orders: OrderAddress[] = await RPC.getOrders(ctx);
         expect(orders.length).to.be.eq(2);
-        expect(`${orders[0].pubkey}`).to.be.eq(`${placedOrderFirst.address}`);
-        expect(`${orders[0].bump}`).to.be.eq(`${placedOrderFirst.bump}`);
-        expect(`${orders[1].pubkey}`).to.be.eq(`${placedOrderSecond.address}`);
-        expect(`${orders[1].bump}`).to.be.eq(`${placedOrderSecond.bump}`);
-
-        // Check token balances
-        await expectTokenBalance(buyerFirstATA.address, firstTraderBuy.sub(amountToSellFirst));
-        await expectTokenBalance(buyerSecondATA.address, secondTraderBuy.sub(amountToSellSecond));
     });
 
     it("Buy tokens from other traders", async () => {
-        const amountToBuy = amountToSellFirst;
-        const buyer: Signer = buyerThird;
-        const buyerTokenAccount: PublicKey = buyerThirdATA.address;
-        const placedOrder: PlacedOrder = placedOrderFirst;
+        const orders: OrderAddress[] = await RPC.getOrders(ctx);
+        const orderAddress = orders[0].pubkey;
+        const orderBefore = await program.account.order.fetch(orderAddress);
+        const orderOwnerAccountBefore = await connection.getAccountInfo(orderBefore.owner);
+        const orderTokens = orderBefore.tokenAmount.tokens;
+        const halfOfAllTokens = orderTokens.div(new anchor.BN(2));
 
-        const orderBefore = await program.account.order.fetch(placedOrder.address);
-        const orderTokenVaultBefore = await getTokenAccount(connection, placedOrder.tokenVault);
-        const orderOwnerAccountBefore = await anchor.getProvider().connection.getAccountInfo(placedOrder.owner);
+        await RPC.redeemOrder(ctx, orderAddress, ctx.traderThird.signer, halfOfAllTokens);
+        await RPC.redeemOrder(ctx, orderAddress, ctx.traderThird.signer, halfOfAllTokens);
 
-        const halfAmountToBuy = amountToBuy.div(new anchor.BN(2));
-        await redeemOrderRPC(halfAmountToBuy, buyer, placedOrder);
-        await redeemOrderRPC(halfAmountToBuy, buyer, placedOrder);
+        await CheckCtx.redeemedOrder(ctx, orderAddress, ctx.traderThird.signer.publicKey, orderTokens, orderTokens);
 
-        // Checking token balances
-        const order = await program.account.order.fetch(placedOrder.address);
-        expect(`${order.tokenAmount.tokens}`).to.be.eq(`${orderBefore.tokenAmount.tokens.sub(amountToBuy)}`);
-        await expectTokenBalance(
-            order.tokenVault,
-            (new anchor.BN(orderTokenVaultBefore.amount.toString())).sub(amountToBuy)
-        );
-        await expectTokenBalance(buyerTokenAccount, amountToBuy);
+        const expectedLamportsIncome: number = ctx.initialTokenPrice * Number(orderTokens);
+        await CheckCtx.lamportsBalance(ctx, orderBefore.owner, orderOwnerAccountBefore.lamports, expectedLamportsIncome);
 
-        // Checking the order's owner lamport balance
-        const rentForTokenAcc = 0; // TODO await connection.getMinimumBalanceForRentExemption(165);
-        const expectedLamportsTrade = initialTokenPrice * amountToBuy.toNumber()
-        // The buyer bought all tokens form the order, so the owner get the rent tokens back
-        const expectedLamportsIncome = expectedLamportsTrade; // TODO + rentForTokenAcc;
-        const orderOwnerAccount = await anchor.getProvider().connection.getAccountInfo(placedOrder.owner);
-
-        // Checking total trading amount
-        const pool = await program.account.poolAccount.fetch(poolPDA);
-        expect(`${pool.lastRoundTradingAmount.lamports}`).to.be.eq(`${expectedLamportsTrade}`);
+        const pool = await program.account.poolAccount.fetch(ctx.accounts.pool.key);
+        expect(`${pool.lastRoundTradingAmount.lamports}`).to.be.eq(`${expectedLamportsIncome}`);
     });
 
-
-    // Helper functions
-    async function redeemOrderRPC(amountToBuy: anchor.BN, buyer: Signer, placedOrder: PlacedOrder) {
-        const buyerTokenAccount: PublicKey = await getAssociatedTokenAddress(sellingMint, buyer.publicKey);
-
-        await program.methods.redeemOrder({ tokens: amountToBuy })
-            .accounts({
-                poolAccount: poolPDA,
-                sellingMint,
-                buyer: buyer.publicKey,
-                buyerTokenAccount,
-                order: placedOrder.address,
-                orderOwner: placedOrder.owner,
-                orderTokenVault: placedOrder.tokenVault,
-                tokenProgram: TOKEN_PROGRAM_ID,
-                clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
-                systemProgram: SystemProgram.programId,
-            })
-            .signers([buyer])
-            .rpc();
-    }
-
-    async function placeOrderRPC(seller: Signer, amountToSell: anchor.BN, priceForToken: anchor.BN): Promise<PlacedOrder> {
-        const [orderPDA, orderBump] = await anchor.web3.PublicKey.findProgramAddress(
-            [
-                anchor.utils.bytes.utf8.encode("order"),
-                seller.publicKey.toBuffer(),
-            ],
-            program.programId
-        );
-
-        const orderTokenVault = await getAssociatedTokenAddress(sellingMint, orderPDA, true);
-
-        const sellerTokenAccount = await getOrCreateAssociatedTokenAccount(
-            connection,
-            seller,
-            sellingMint,
-            seller.publicKey,
-        );
-
-        await program.methods
-            .placeOrder(
-                orderBump,
-                { tokens: amountToSell },
-                priceForToken,
-            )
-            .accounts({
-                poolAccount: poolPDA,
-                sellingMint,
-                seller: seller.publicKey,
-                sellerTokenAccount: sellerTokenAccount.address,
-                order: orderPDA,
-                orderTokenVault,
-                systemProgram: SystemProgram.programId,
-                tokenProgram: TOKEN_PROGRAM_ID,
-                associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-                rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-                clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
-            })
-            .signers([seller])
-            .rpc();
-
-        const order = await program.account.order.fetch(orderPDA);
-
-        expect(`${order.bump}`).to.be.eq(`${orderBump}`);
-        expect(`${order.owner}`).to.be.eq(`${seller.publicKey}`);
-        expect(`${order.tokenVault}`).to.be.eq(`${orderTokenVault}`);
-        expect(`${order.tokenPrice}`).to.be.eq(`${priceForToken}`);
-        expect(`${order.tokenAmount.tokens}`).to.be.eq(`${amountToSell}`);
-        await expectTokenBalance(orderTokenVault, amountToSell);
-
-        return Promise.resolve({
-            address: orderPDA,
-            bump: orderBump,
-            tokenVault: order.tokenVault,
-            owner: order.owner,
-        });
-    }
-
-    async function createUserWithATA(mint, lamports = 100): Promise<[Signer, TokenAccount]> {
-        let user = await createUserWithLamports(connection, lamports);
-        let ata = await getOrCreateAssociatedTokenAccount(
-            connection,
-            user,
-            mint,
-            user.publicKey
-        );
-
-        return Promise.all([user, ata]);
-    }
-
-    async function getTokenPrice(): Promise<anchor.BN> {
-        const pool = await program.account.poolAccount.fetch(poolPDA);
-        return new anchor.BN(pool.tokenPrice);
-    }
-
-    async function buyTokens(amount, buyer) {
-        const buyerTokenAcc = await getOrCreateAssociatedTokenAccount(connection, buyer, sellingMint, buyer.publicKey);
-
-        await program.methods.buy(
-            { tokens: amount },
-        ).accounts({
-            poolAccount: poolPDA,
-            sellingMint,
-            vaultSelling,
-            buyer: buyer.publicKey,
-            buyerTokenAccount: buyerTokenAcc.address,
-            systemProgram: SystemProgram.programId,
-            tokenProgram: TOKEN_PROGRAM_ID,
-            clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
-        }).signers([buyer]).rpc();
-    }
-
-    async function expectPoolBalance(expectedBalance: anchor.BN) {
-        await expectLamportsBalance(poolPDA, expectedBalance.add(poolRentBalance));
-    }
-
-    async function expectLamportsBalance(account: PublicKey, expectedBalance: anchor.BN) {
-        let info = await connection.getAccountInfo(poolPDA);
-        expect(`${info.lamports}`).to.be.eq(`${expectedBalance}`);
-    }
-
-    async function expectTokenBalance(tokenAcc: PublicKey, expectedBalance: anchor.BN) {
-        try {
-            let acc = await getTokenAccount(connection, tokenAcc);
-            expect(`${acc.amount}`).to.be.eq(`${expectedBalance}`);
-        } catch (err) {
-            // account is deleted. So it has zero tokens ;)
-            expect(`${0}`).to.be.eq(`${expectedBalance}`);
-        }
-    }
 });
-
-// TODO move
-export interface OrderAddress {
-    pubkey: PublicKey,
-    bump: number,
-}
-
-export interface PlacedOrder {
-    address: PublicKey,
-    bump: number,
-    tokenVault: PublicKey,
-    owner: PublicKey,
-}
