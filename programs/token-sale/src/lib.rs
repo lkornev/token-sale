@@ -145,7 +145,8 @@ pub mod token_sale {
     }
 
     pub fn close_order(ctx: Context<CloseOrder>) -> Result<()> {
-        ctx.accounts.sent_tokens_from_order_to_owner()?;
+        ctx.accounts.sent_all_tokens_from_order_to_owner()?;
+        ctx.accounts.close_order_token_vault()?;
         ctx.accounts.pool_account.remove_order(ctx.accounts.order.to_account_info().key)
     }
 

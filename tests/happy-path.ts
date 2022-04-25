@@ -3,14 +3,14 @@ import { Program } from "@project-serum/anchor";
 import { TokenSale } from "../target/types/token_sale";
 import { sleepTill } from "./helpers/helpers";
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { Round } from "./helpers/round";
+import { Round } from "./types/round";
 import { createCtx, Ctx } from "./helpers/ctx";
 import { OrderAddress, RPC } from "./helpers/rpc";
-import { CheckCtx } from "./helpers/check";
+import { CheckCtx} from "./helpers/check";
 import { expect } from "chai";
 import { getAccount as getTokenAccount } from "@solana/spl-token";
 
-describe("token-sale", () => {
+describe("happy-path", () => {
     // Configure the client to use the local cluster.
     anchor.setProvider(anchor.AnchorProvider.env());
 
@@ -50,7 +50,7 @@ describe("token-sale", () => {
         await CheckCtx.currentRound(ctx, Round.Trading, Date.now());
     });
 
-    it("Place orders for selling tokens", async () => {
+    it("Places orders for selling tokens", async () => {
         const amountToSellFirst = new anchor.BN(2),
             priceForTokenFirst = new anchor.BN(0.12 * LAMPORTS_PER_SOL),
             amountToSellSecond = new anchor.BN(5),
@@ -59,7 +59,7 @@ describe("token-sale", () => {
         const firstTraderBalanceBefore = await getTokenAccount(connection, ctx.traderFirst.ata);
         const secondTraderBalanceBefore = await getTokenAccount(connection, ctx.traderSecond.ata);
 
-        const placedOrderFirst =  await RPC.placeOrder(ctx, ctx.traderFirst.signer, amountToSellFirst, priceForTokenFirst);
+        const placedOrderFirst = await RPC.placeOrder(ctx, ctx.traderFirst.signer, amountToSellFirst, priceForTokenFirst);
         await CheckCtx.lastPlacedOrder(ctx, placedOrderFirst);
         await CheckCtx.tokenBalance(ctx, ctx.traderFirst.ata, firstTraderBalanceBefore.amount, -amountToSellFirst);
 
@@ -71,7 +71,7 @@ describe("token-sale", () => {
         expect(orders.length).to.be.eq(2);
     });
 
-    it("Buy tokens from other traders", async () => {
+    it("Buys tokens from other traders", async () => {
         const orders: OrderAddress[] = await RPC.getOrders(ctx);
         const orderAddress = orders[0].pubkey;
         const orderBefore = await program.account.order.fetch(orderAddress);
@@ -91,4 +91,37 @@ describe("token-sale", () => {
         expect(`${pool.lastRoundTradingAmount.lamports}`).to.be.eq(`${expectedLamportsIncome}`);
     });
 
+    it("Closes orders", async () => {
+        const orders: OrderAddress[] = await RPC.getOrders(ctx);
+        const orderSpace = (await ctx.connection.getAccountInfo(orders[0].pubkey)).data.length;
+
+        const orderKey1 = orders[0].pubkey;
+        const order1 = await ctx.program.account.order.fetch(orderKey1);
+        const orderTokens1 = (await getTokenAccount(ctx.connection, order1.tokenVault)).amount;
+        const ownerKey1 = ctx.traderFirst.signer.publicKey;
+        const ownerTokens1 = (await getTokenAccount(ctx.connection, ctx.traderFirst.ata)).amount;
+        const ownerLamports1 = (await ctx.connection.getAccountInfo(ownerKey1)).lamports;
+
+        await RPC.closeOrder(ctx, orderKey1, order1.tokenVault, ctx.traderFirst.signer, ctx.traderFirst.ata);
+        await CheckCtx.closeOrder(ctx, orderKey1, orderTokens1, orderSpace, ownerKey1, ownerTokens1, ownerLamports1);
+        expect((await RPC.getOrders(ctx)).length).to.be.eq(1);
+
+        const orderKey2 = orders[1].pubkey;
+        const order2 = await ctx.program.account.order.fetch(orderKey2);
+        const orderTokens2 = (await getTokenAccount(ctx.connection, order2.tokenVault)).amount;
+        const ownerKey2 = ctx.traderSecond.signer.publicKey;
+        const ownerTokens2 = (await getTokenAccount(ctx.connection, ctx.traderSecond.ata)).amount;
+        const ownerLamports2 = (await ctx.connection.getAccountInfo(ownerKey2)).lamports;
+
+        await RPC.closeOrder(ctx, orderKey2, order2.tokenVault, ctx.traderSecond.signer, ctx.traderSecond.ata);
+        await CheckCtx.closeOrder(ctx, orderKey2, orderTokens2, orderSpace, ownerKey2, ownerTokens2, ownerLamports2);
+        expect((await RPC.getOrders(ctx)).length).to.be.eq(0);
+    });
+
+    // TODO wait till the end of the current round, switch to buying,
+    // TODO buy
+    // TODO switch to trading
+    // TODO trade
+    // TODO wait till the end
+    // TODO terminate IDO
 });

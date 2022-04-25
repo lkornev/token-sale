@@ -3,12 +3,13 @@ import {
     ASSOCIATED_TOKEN_PROGRAM_ID,
     getOrCreateAssociatedTokenAccount,
     Account as TokenAccount,
-    TOKEN_PROGRAM_ID, getAssociatedTokenAddress
+    TOKEN_PROGRAM_ID,
+    getAssociatedTokenAddress,
 } from "@solana/spl-token";
 import * as anchor from "@project-serum/anchor";
 import { Ctx } from "./ctx";
 import { expect } from "chai";
-import { Round } from "./round";
+import { Round } from "../types/round";
 
 export namespace RPC {
     export async function initialize(ctx: Ctx) {
@@ -140,6 +141,26 @@ export namespace RPC {
                 systemProgram: SystemProgram.programId,
             })
             .signers([buyer])
+            .rpc();
+    }
+
+    export async function closeOrder(
+        ctx: Ctx,
+        orderAddress: PublicKey,
+        orderTokenVault: PublicKey,
+        ownerSigner: Signer,
+        ownerTokenAccount: PublicKey,
+    ) {
+        await ctx.program.methods.closeOrder()
+            .accounts({
+                poolAccount: ctx.accounts.pool.key,
+                sellingMint: ctx.sellingMint,
+                order: orderAddress,
+                orderTokenVault: orderTokenVault,
+                orderOwner: ownerSigner.publicKey,
+                ownerTokenVault: ownerTokenAccount,
+            })
+            .signers([ownerSigner])
             .rpc();
     }
 }

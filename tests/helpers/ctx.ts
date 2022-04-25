@@ -102,7 +102,7 @@ export async function createCtx(connection: Connection, program: Program<TokenSa
         sellingMint,
         tokensForDistribution,
         buyingDuration: 3,
-        tradingDuration: 5,
+        tradingDuration: 3,
         // 1 Token = 100_000_000 Lamports = 0.1 SOL
         initialTokenPrice: 0.1 * LAMPORTS_PER_SOL,
         tokensPerRound: new anchor.BN(5_000),
@@ -122,8 +122,8 @@ export async function createCtx(connection: Connection, program: Program<TokenSa
             signer: user3,
             ata: ata3.address,
         },
-        roundStartAt: now + 5,
-        endAt: now + 30,
+        roundStartAt: now + 1,
+        endAt: now + 12,
         accounts: {
             pool: { key: poolPDA, bump: poolBump },
         }

@@ -5,10 +5,10 @@ import { Ctx } from "./ctx";
 import {
     getAccount as getTokenAccount,
     getAssociatedTokenAddress,
-    Account as TokenAccount,
+    Account as TokenAccount, getMinimumBalanceForRentExemptAccount,
 } from '@solana/spl-token';
-import { Round } from "./round";
-import { OrderAddress, PlacedOrder } from "./rpc";
+import { Round } from "../types/round";
+import {OrderAddress, PlacedOrder, RPC} from "./rpc";
 
 type Balance = number | anchor.BN | bigint;
 
@@ -60,6 +60,29 @@ export namespace CheckCtx {
 
         const buyerAta = await getAssociatedTokenAddress(ctx.sellingMint, buyer);
         await CheckCtx.tokenBalance(ctx, buyerAta, 0, expectedRedeemedBalance);
+    }
+
+    export async function closeOrder(
+        ctx: Ctx,
+        orderKey: PublicKey,
+        orderTokensAmount: Balance,
+        orderDataLength: number,
+        ownerKey: PublicKey,
+        ownerTokensBefore: Balance,
+        ownerLamportsBefore: Balance,
+    ) {
+        const orderATA = await getAssociatedTokenAddress(ctx.sellingMint, orderKey, true);
+        const ownerATA = await getAssociatedTokenAddress(ctx.sellingMint, ownerKey);
+
+        // Tokens moved from orderFirst.tokenVault to ctx.traderFirst.ata
+        await CheckCtx.tokenBalance(ctx, orderATA, orderTokensAmount, -orderTokensAmount);
+        await CheckCtx.tokenBalance(ctx, ownerATA, ownerTokensBefore, orderTokensAmount);
+
+        // The rent for order account and the order's ata is returned to the order's owner.
+        const ownerLamportsAfter = (await ctx.connection.getAccountInfo(ownerKey)).lamports;
+        const rentForOrder = await ctx.connection.getMinimumBalanceForRentExemption(orderDataLength);
+        const rentForTokenVault = await getMinimumBalanceForRentExemptAccount(ctx.connection);
+        expect(Number(ownerLamportsBefore) + rentForOrder + rentForTokenVault).to.be.eq(ownerLamportsAfter);
     }
 
     export async function poolInitialState(ctx: Ctx) {

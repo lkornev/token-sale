@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, TokenAccount, Token, Mint, CloseAccount, transfer, Transfer};
+use anchor_spl::token::{TokenAccount, Token, Mint, transfer, Transfer};
 use crate::account::*;
 use crate::Tokens;
 
@@ -24,7 +24,7 @@ pub struct RedeemOrder<'info> {
     #[account(
         mut,
         seeds = [Order::PDA_SEED, order.owner.as_ref()],
-        bump,
+        bump = order.bump,
         constraint = order.owner == order_owner.key(),
     )]
     pub order: Account<'info, Order>,
