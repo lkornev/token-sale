@@ -31,7 +31,7 @@ export interface Ctx {
     tokensForDistribution: TokenAccount,
     buyingDuration: number,
     tradingDuration: number,
-    initialTokenPrice: number,
+    initialTokenPrice: anchor.BN,
     tokensPerRound: anchor.BN,
     amountForSale: anchor.BN,
     // The coefficients that define the value of the token in the next buying round
@@ -104,7 +104,7 @@ export async function createCtx(connection: Connection, program: Program<TokenSa
         buyingDuration: 3,
         tradingDuration: 3,
         // 1 Token = 100_000_000 Lamports = 0.1 SOL
-        initialTokenPrice: 0.1 * LAMPORTS_PER_SOL,
+        initialTokenPrice: new anchor.BN(0.1 * LAMPORTS_PER_SOL),
         tokensPerRound: new anchor.BN(5_000),
         amountForSale: new anchor.BN(10_000),
         coeffA: 1.2,

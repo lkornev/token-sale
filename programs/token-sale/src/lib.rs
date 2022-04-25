@@ -19,7 +19,7 @@ pub mod token_sale {
         end_at: u32,
         buying_duration: u32,
         trading_duration: u32,
-        token_price: u32,
+        token_price: u64,
         tokens_per_round: u64,
         pool_bump: u8,
         amount_to_sell: Tokens,
@@ -156,11 +156,11 @@ pub mod token_sale {
         pool.round_start_at = ctx.accounts.clock.unix_timestamp as u32;
         pool.current_round = Round::Buying;
 
-        const PRECISENESS: u32 = 10000;
+        const PRECISENESS: u64 = 10000;
         pool.token_price = pool.token_price
-            .checked_mul((pool.coeff_a * PRECISENESS as f32) as u32).unwrap()
+            .checked_mul((pool.coeff_a * PRECISENESS as f32) as u64).unwrap()
             .checked_div(PRECISENESS).unwrap()
-            .checked_add(pool.coeff_b).unwrap();
+            .checked_add(pool.coeff_b as u64).unwrap();
 
         Ok(())
     }

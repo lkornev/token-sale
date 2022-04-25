@@ -84,7 +84,7 @@ describe("happy-path", () => {
 
         await CheckCtx.redeemedOrder(ctx, orderAddress, ctx.traderThird.signer.publicKey, orderTokens, orderTokens);
 
-        const expectedLamportsIncome: number = ctx.initialTokenPrice * Number(orderTokens);
+        const expectedLamportsIncome = ctx.initialTokenPrice.mul(orderTokens);
         await CheckCtx.lamportsBalance(ctx, orderBefore.owner, orderOwnerAccountBefore.lamports, expectedLamportsIncome);
 
         const pool = await program.account.poolAccount.fetch(ctx.accounts.pool.key);
@@ -118,7 +118,18 @@ describe("happy-path", () => {
         expect((await RPC.getOrders(ctx)).length).to.be.eq(0);
     });
 
-    // TODO wait till the end of the current round, switch to buying,
+    it("Waits till the end of the current round and switches to buying", async () => {
+        const currentRoundEndsAtMs = (ctx.roundStartAt + ctx.tradingDuration) * 1000;
+        await sleepTill(currentRoundEndsAtMs);
+
+        await RPC.switchToBuying(ctx);
+        await CheckCtx.currentRound(ctx, Round.Buying, Date.now());
+
+        const expectedTokenPrice = Number(ctx.initialTokenPrice) * ctx.coeffA + ctx.coeffB;
+        const pool = await program.account.poolAccount.fetch(ctx.accounts.pool.key);
+        expect(Number(pool.tokenPrice)).to.be.eq(expectedTokenPrice);
+    });
+
     // TODO buy
     // TODO switch to trading
     // TODO trade

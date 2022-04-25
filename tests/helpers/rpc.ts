@@ -163,6 +163,15 @@ export namespace RPC {
             .signers([ownerSigner])
             .rpc();
     }
+
+    export async function switchToBuying(ctx: Ctx) {
+        await ctx.program.methods.switchToBuying()
+            .accounts({
+                poolAccount: ctx.accounts.pool.key,
+                clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
+            })
+            .rpc();
+    }
 }
 
 export interface PlacedOrder {
