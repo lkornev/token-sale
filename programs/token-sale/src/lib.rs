@@ -133,9 +133,6 @@ pub mod token_sale {
         let order = &mut ctx.accounts.order;
         order.token_amount -= tokens_amount;
 
-        // Save the total trading amount in lamports
-        let pool = &mut ctx.accounts.pool_account;
-
         Ok(())
     }
 
@@ -165,7 +162,7 @@ pub mod token_sale {
     }
 
     /// The program could be terminated after the `pool_account.end_at` time has passed.
-    #[access_control(can_terminate(&ctx.accounts.pool_account, &ctx.accounts.vault_selling, &ctx.accounts.clock))]
+    #[access_control(can_terminate(&ctx.accounts.pool_account, &ctx.accounts.clock))]
     pub fn terminate(ctx: Context<Terminate>) -> Result<()> {
         ctx.accounts.burn_left_tokens()?;
         ctx.accounts.close_vault_selling()

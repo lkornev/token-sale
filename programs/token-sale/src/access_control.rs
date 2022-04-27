@@ -2,7 +2,6 @@ use anchor_lang::prelude::*;
 use crate::account::*;
 use crate::round::*;
 use crate::error::ErrorCode;
-use crate::Lamports;
 use anchor_spl::token::TokenAccount;
 
 // Is buying round running?
@@ -87,7 +86,6 @@ pub fn can_switch_to_buying_round<'info>(
 
 pub fn can_terminate<'info>(
     pool: &Account<'info, PoolAccount>,
-    vault_selling: Account<'info, TokenAccount>,
     clock: &Sysvar<'info, Clock>,
 ) -> Result<()> {
     if pool.end_at > clock.unix_timestamp as u32 {

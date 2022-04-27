@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::ErrorCode;
 use crate::Round;
-use crate::currency::{Tokens, Lamports};
+use crate::currency::Tokens;
 
 /// The main state of the program
 #[account]
