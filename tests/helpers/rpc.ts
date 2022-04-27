@@ -19,7 +19,6 @@ export namespace RPC {
             ctx.buyingDuration,
             ctx.tradingDuration,
             ctx.initialTokenPrice,
-            ctx.tokensPerRound,
             ctx.accounts.pool.bump,
             { tokens: ctx.amountForSale },
             ctx.coeffA,
@@ -33,7 +32,6 @@ export namespace RPC {
             systemProgram: SystemProgram.programId,
             tokenProgram: TOKEN_PROGRAM_ID,
             associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-            rent: anchor.web3.SYSVAR_RENT_PUBKEY,
             clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
         }).signers([ctx.owner]).rpc();
     }
@@ -102,7 +100,6 @@ export namespace RPC {
                 systemProgram: SystemProgram.programId,
                 tokenProgram: TOKEN_PROGRAM_ID,
                 associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-                rent: anchor.web3.SYSVAR_RENT_PUBKEY,
                 clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
             })
             .signers([seller])
@@ -170,6 +167,35 @@ export namespace RPC {
                 poolAccount: ctx.accounts.pool.key,
                 clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
             })
+            .rpc();
+    }
+
+    export async function withdrawLamports(ctx: Ctx) {
+        await ctx.program.methods.withdrawLamports()
+            .accounts({
+                poolAccount: ctx.accounts.pool.key,
+                sellingMint: ctx.sellingMint,
+                owner: ctx.owner.publicKey,
+                tokenProgram: TOKEN_PROGRAM_ID,
+                systemProgram: SystemProgram.programId,
+                clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
+            })
+            .signers([ctx.owner])
+            .rpc();
+    }
+
+    export async function terminate(ctx: Ctx) {
+        await ctx.program.methods.terminate()
+            .accounts({
+                poolAccount: ctx.accounts.pool.key,
+                sellingMint: ctx.sellingMint,
+                vaultSelling: ctx.vaultSelling,
+                owner: ctx.owner.publicKey,
+                tokenProgram: TOKEN_PROGRAM_ID,
+                systemProgram: SystemProgram.programId,
+                clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
+            })
+            .signers([ctx.owner])
             .rpc();
     }
 }

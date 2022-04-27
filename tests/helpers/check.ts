@@ -26,7 +26,9 @@ export namespace CheckCtx {
         expect(`${pool.currentRound}`).to.be.eq(`${round}`);
 
         if (startedAtMs) {
-            expect(pool.roundStartAt >= startedAtMs - 1000 || pool.roundStartAt <= startedAtMs + 1000).to.be.true;
+            expect(pool.roundStartAt >= startedAtMs - 1000 || pool.roundStartAt <= startedAtMs + 1000,
+                "The round started near the current time"
+            ).to.be.true;
         }
     }
 
@@ -97,8 +99,6 @@ export namespace CheckCtx {
         expect(`${pool.buyingDuration}`).to.be.eq(`${ctx.buyingDuration}`);
         expect(`${pool.tradingDuration}`).to.be.eq(`${ctx.tradingDuration}`);
         expect(`${pool.tokenPrice}`).to.be.eq(`${ctx.initialTokenPrice}`);
-        expect(`${pool.tokensPerRound}`).to.be.eq(`${ctx.tokensPerRound}`);
-        expect(`${pool.lastRoundTradingAmount.lamports}`).to.be.eq(`${0}`);
     }
 }
 

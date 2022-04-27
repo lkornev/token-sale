@@ -16,7 +16,7 @@ pub struct Initialize<'info> {
     pub pool_account: Account<'info, PoolAccount>,
     // The one who will sign the transaction of transferring tokens from the `tokens_for_distribution` account
     // to the `vault_selling` account.
-    // And then allowed to withdraw payment from the `vault_payment`.
+    // And then allowed to withdraw payment from the pool.
     #[account(mut)]
     pub distribution_authority: Signer<'info>,
     #[account(

@@ -20,7 +20,6 @@ pub mod token_sale {
         buying_duration: u32,
         trading_duration: u32,
         token_price: u64,
-        tokens_per_round: u64,
         pool_bump: u8,
         amount_to_sell: Tokens,
         coeff_a: f32,
@@ -45,9 +44,7 @@ pub mod token_sale {
         pool_account.buying_duration = buying_duration;
         pool_account.trading_duration = trading_duration;
         pool_account.token_price = token_price;
-        pool_account.tokens_per_round = tokens_per_round;
         pool_account.current_round = Round::Buying;
-        pool_account.last_round_trading_amount = Lamports::new(0);
         pool_account.orders = Vec::new();
         pool_account.coeff_a = coeff_a;
         pool_account.coeff_b = coeff_b;
@@ -82,7 +79,6 @@ pub mod token_sale {
         let pool = &mut ctx.accounts.pool_account;
         pool.round_start_at = ctx.accounts.clock.unix_timestamp as u32;
         pool.current_round = Round::Trading;
-        pool.last_round_trading_amount = Lamports::new(0);
 
         Ok(())
     }
@@ -139,7 +135,6 @@ pub mod token_sale {
 
         // Save the total trading amount in lamports
         let pool = &mut ctx.accounts.pool_account;
-        pool.last_round_trading_amount += lamports_amount;
 
         Ok(())
     }
@@ -165,12 +160,14 @@ pub mod token_sale {
         Ok(())
     }
 
-    /// The program could be terminated after the `pool_account.end_at` time has passed
-    /// or if no one deal have taken place during the last trade round.
+    pub fn withdraw_lamports(ctx: Context<WithdrawLamports>) -> Result<()> {
+        ctx.accounts.send_lamports_from_pool_to_owner()
+    }
+
+    /// The program could be terminated after the `pool_account.end_at` time has passed.
+    #[access_control(can_terminate(&ctx.accounts.pool_account, &ctx.accounts.vault_selling, &ctx.accounts.clock))]
     pub fn terminate(ctx: Context<Terminate>) -> Result<()> {
-        // TODO withdraw tokens from vault_payment. Sign by pool_account.owner
-        // TODO burn all unsold tokens
-        // TODO destroy all accounts and the program itself
-        unimplemented!();
+        ctx.accounts.burn_left_tokens()?;
+        ctx.accounts.close_vault_selling()
     }
 }

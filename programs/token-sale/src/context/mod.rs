@@ -6,3 +6,4 @@ mod redeem_order; pub use redeem_order::*;
 mod switch_to_buying; pub use switch_to_buying::*;
 mod switch_to_trading; pub use switch_to_trading::*;
 mod terminate; pub use terminate::*;
+mod withdraw_lamports; pub use withdraw_lamports::*;

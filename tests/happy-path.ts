@@ -8,7 +8,7 @@ import { createCtx, Ctx } from "./helpers/ctx";
 import { OrderAddress, RPC } from "./helpers/rpc";
 import { CheckCtx} from "./helpers/check";
 import { expect } from "chai";
-import { getAccount as getTokenAccount } from "@solana/spl-token";
+import { getAccount as getTokenAccount, getMint } from "@solana/spl-token";
 
 describe("happy-path", () => {
     // Configure the client to use the local cluster.
@@ -43,7 +43,7 @@ describe("happy-path", () => {
         await CheckCtx.tokenBalance(ctx, ctx.traderSecond.ata, 0, secondTraderBuy);
     });
 
-    it("Switches to trading round", async () => {
+    it("Switches to the trading round", async () => {
         const currentRoundEndsAtMs = (ctx.roundStartAt + ctx.buyingDuration) * 1000;
         await sleepTill(currentRoundEndsAtMs);
         await RPC.switchToTrading(ctx);
@@ -86,9 +86,6 @@ describe("happy-path", () => {
 
         const expectedLamportsIncome = ctx.initialTokenPrice.mul(orderTokens);
         await CheckCtx.lamportsBalance(ctx, orderBefore.owner, orderOwnerAccountBefore.lamports, expectedLamportsIncome);
-
-        const pool = await program.account.poolAccount.fetch(ctx.accounts.pool.key);
-        expect(`${pool.lastRoundTradingAmount.lamports}`).to.be.eq(`${expectedLamportsIncome}`);
     });
 
     it("Closes orders", async () => {
@@ -118,8 +115,8 @@ describe("happy-path", () => {
         expect((await RPC.getOrders(ctx)).length).to.be.eq(0);
     });
 
-    it("Waits till the end of the current round and switches to buying", async () => {
-        const currentRoundEndsAtMs = (ctx.roundStartAt + ctx.tradingDuration) * 1000;
+    it("Waits till the end of the current round and switches to the buying round", async () => {
+        const currentRoundEndsAtMs = (ctx.roundStartAt + ctx.tradingDuration + 1) * 1000;
         await sleepTill(currentRoundEndsAtMs);
 
         await RPC.switchToBuying(ctx);
@@ -130,9 +127,39 @@ describe("happy-path", () => {
         expect(Number(pool.tokenPrice)).to.be.eq(expectedTokenPrice);
     });
 
-    // TODO buy
-    // TODO switch to trading
-    // TODO trade
-    // TODO wait till the end
-    // TODO terminate IDO
+    // TODO buy, switch to trading, trade
+
+    it("Waits till the end of the IDO", async () => {
+        await sleepTill((ctx.endAt + 1) * 1000);
+    });
+
+    it("Withdraws lamports income to the owner of the IDO", async () => {
+        const poolInfoBefore = await connection.getAccountInfo(ctx.accounts.pool.key);
+        const rentForPool = await ctx.connection.getMinimumBalanceForRentExemption(poolInfoBefore.data.length);
+        const ownerLamportsBefore = (await connection.getAccountInfo(ctx.owner.publicKey)).lamports;
+
+        await RPC.withdrawLamports(ctx);
+
+        const poolLamportsAfter = (await connection.getAccountInfo(ctx.accounts.pool.key)).lamports;
+        const ownerLamportsAfter = (await connection.getAccountInfo(ctx.owner.publicKey)).lamports;
+        expect(poolLamportsAfter).to.be.eq(rentForPool);
+        expect(ownerLamportsAfter - ownerLamportsBefore).to.be.eq( poolInfoBefore.lamports - rentForPool);
+    });
+
+    it("Terminates IDO", async () => {
+        const vaultSellingRent = (await connection.getAccountInfo(ctx.vaultSelling)).lamports;
+        const ownerBalanceBefore = (await connection.getAccountInfo(ctx.owner.publicKey)).lamports;
+        const unsoldTokensToBeBurned = (await getTokenAccount(connection, ctx.vaultSelling)).amount;
+        const mintSupplyBefore = (await getMint(connection, ctx.sellingMint)).supply;
+        const poolInfoBefore = await connection.getAccountInfo(ctx.accounts.pool.key);
+        const rentForPool = await ctx.connection.getMinimumBalanceForRentExemption(poolInfoBefore.data.length);
+
+        await RPC.terminate(ctx);
+
+        const mintSupplyAfter = (await getMint(connection, ctx.sellingMint)).supply;
+        const ownerBalanceAfter = (await connection.getAccountInfo(ctx.owner.publicKey)).lamports;
+
+        expect(mintSupplyBefore - mintSupplyAfter).to.be.eq(unsoldTokensToBeBurned);
+        expect(ownerBalanceAfter - ownerBalanceBefore).to.be.eq(vaultSellingRent + rentForPool);
+    });
 });
