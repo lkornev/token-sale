@@ -8,7 +8,7 @@ import {
     Account as TokenAccount, getMinimumBalanceForRentExemptAccount,
 } from '@solana/spl-token';
 import { Round } from "../types/round";
-import {OrderAddress, PlacedOrder, RPC} from "./rpc";
+import { Order, RPC } from "./rpc";
 
 type Balance = number | anchor.BN | bigint;
 
@@ -17,8 +17,8 @@ export namespace CheckCtx {
         await Check.lamportsBalance(ctx.connection, key, Number(balanceBefore) + Number(addedBalance));
     }
 
-    export async function tokenBalance(ctx: Ctx, key: PublicKey, balanceBefore: Balance, addedBalance: Balance) {
-        await Check.tokenBalance(ctx.connection, key, Number(balanceBefore) + Number(addedBalance));
+    export async function tokenBalance(ctx: Ctx, key: PublicKey, balanceBefore: Balance, addedBalance: Balance, msg?: string) {
+        await Check.tokenBalance(ctx.connection, key, Number(balanceBefore) + Number(addedBalance), msg);
     }
 
     export async function currentRound(ctx: Ctx, round: object, startedAtMs?: number) {
@@ -26,27 +26,21 @@ export namespace CheckCtx {
         expect(`${pool.currentRound}`).to.be.eq(`${round}`);
 
         if (startedAtMs) {
-            expect(pool.roundStartAt >= startedAtMs - 1000 || pool.roundStartAt <= startedAtMs + 1000,
+            expect(Number(pool.roundStartAt) >= startedAtMs - 1000 || Number(pool.roundStartAt) <= startedAtMs + 1000,
                 "The round started near the current time"
             ).to.be.true;
         }
     }
 
-    export async function lastPlacedOrder(ctx: Ctx, placedOrder: PlacedOrder) {
-        const order = await ctx.program.account.order.fetch(placedOrder.address);
-        expect(`${order.bump}`).to.be.eq(`${placedOrder.bump}`);
-        expect(`${order.owner}`).to.be.eq(`${placedOrder.owner}`);
-        expect(`${order.tokenVault}`).to.be.eq(`${placedOrder.tokenVault}`);
-        expect(`${order.tokenPrice}`).to.be.eq(`${placedOrder.priceForToken}`);
-        expect(`${order.tokenAmount.tokens}`).to.be.eq(`${placedOrder.amountToSell}`);
+    export async function order(ctx: Ctx, orderKey: PublicKey, expectedOrder: Order) {
+        const order = await ctx.program.account.order.fetch(orderKey);
+        expect(`${order.bump}`).to.be.eq(`${expectedOrder.bump}`);
+        expect(`${order.owner}`).to.be.eq(`${expectedOrder.owner}`);
+        expect(`${order.tokenVault}`).to.be.eq(`${expectedOrder.tokenVault}`);
+        expect(`${order.tokenPrice}`).to.be.eq(`${expectedOrder.tokenPrice}`);
+        expect(`${order.tokenAmount.tokens}`).to.be.eq(`${expectedOrder.tokenAmount.tokens}`);
 
-        await tokenBalance(ctx, placedOrder.tokenVault, 0, placedOrder.amountToSell);
-
-        const pool = await ctx.program.account.poolAccount.fetch(ctx.accounts.pool.key);
-        const lastOrder: OrderAddress = pool.orders[(pool.orders as OrderAddress[]).length - 1];
-
-        expect(`${lastOrder.pubkey}`).to.be.eq(`${placedOrder.address}`);
-        expect(`${lastOrder.bump}`).to.be.eq(`${placedOrder.bump}`);
+        await tokenBalance(ctx, expectedOrder.tokenVault, 0, expectedOrder.tokenAmount.tokens);
     }
 
     export async function redeemedOrder(
@@ -57,11 +51,11 @@ export namespace CheckCtx {
         expectedRedeemedBalance: Balance
     ) {
         const order = await ctx.program.account.order.fetch(orderAddress);
-        await CheckCtx.tokenBalance(ctx, orderAddress, balanceBefore, -expectedRedeemedBalance);
-        await CheckCtx.tokenBalance(ctx, order.tokenVault, balanceBefore, -expectedRedeemedBalance);
+        await CheckCtx.tokenBalance(ctx, orderAddress, balanceBefore, -expectedRedeemedBalance, 'of order');
+        await CheckCtx.tokenBalance(ctx, order.tokenVault, balanceBefore, -expectedRedeemedBalance, 'of order token vault');
 
         const buyerAta = await getAssociatedTokenAddress(ctx.sellingMint, buyer);
-        await CheckCtx.tokenBalance(ctx, buyerAta, 0, expectedRedeemedBalance);
+        await CheckCtx.tokenBalance(ctx, buyerAta, 0, expectedRedeemedBalance, 'of buyer ATA');
     }
 
     export async function closeOrder(
@@ -110,14 +104,14 @@ export namespace Check {
         expect(`${info.lamports}`, message).to.be.eq(`${expectedBalance}`);
     }
 
-    export async function tokenBalance(connection: Connection, key: PublicKey, expectedBalance: number) {
+    export async function tokenBalance(connection: Connection, key: PublicKey, expectedBalance: number, msg?: string) {
         let acc: TokenAccount | null = await getTokenAccount(connection, key).catch(() => null);
 
         if (acc) {
-            expect(`${acc.amount}`, "Token balance").to.be.eq(`${expectedBalance}`);
+            expect(`${acc.amount}`, `Token balance ${msg}`).to.be.eq(`${expectedBalance}`);
         } else {
             // Account does not exist, so it has zero tokens ;)
-            expect(`${0}`, "Token balance (acc not found)").to.be.eq(`${expectedBalance}`);
+            expect(`${0}`, `Token balance (acc not found) ${msg}`).to.be.eq(`${expectedBalance}`);
         }
     }
 }

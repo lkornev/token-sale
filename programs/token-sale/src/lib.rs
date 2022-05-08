@@ -15,8 +15,8 @@ pub mod token_sale {
 
     pub fn initialize(
         ctx: Context<Initialize>,
-        round_start_at: u32,
-        end_at: u32,
+        round_start_at: i64,
+        end_at: i64,
         buying_duration: u32,
         trading_duration: u32,
         token_price: u64,
@@ -26,8 +26,8 @@ pub mod token_sale {
         coeff_b: u32,
     ) -> Result<()> {
         let tokens_for_sale = Tokens::new(ctx.accounts.tokens_for_distribution.amount);
-        let now = ctx.accounts.clock.unix_timestamp as u32;
-        let full_cycle = now + buying_duration + trading_duration;
+        let now = ctx.accounts.clock.unix_timestamp;
+        let full_cycle = now + buying_duration as i64 + trading_duration as i64;
 
         require!(token_price != 0, ErrorCode::TokenPriceZero);
         require!(amount_to_sell <= tokens_for_sale, ErrorCode::NotEnoughTokensForSale);
@@ -45,7 +45,6 @@ pub mod token_sale {
         pool_account.trading_duration = trading_duration;
         pool_account.token_price = token_price;
         pool_account.current_round = Round::Buying;
-        pool_account.orders = Vec::new();
         pool_account.coeff_a = coeff_a;
         pool_account.coeff_b = coeff_b;
 
@@ -77,7 +76,7 @@ pub mod token_sale {
     #[access_control(can_switch_to_trading_round(&ctx.accounts.pool_account, &ctx.accounts.clock))]
     pub fn switch_to_trading(ctx: Context<SwitchToTrading>) -> Result<()> {
         let pool = &mut ctx.accounts.pool_account;
-        pool.round_start_at = ctx.accounts.clock.unix_timestamp as u32;
+        pool.round_start_at = ctx.accounts.clock.unix_timestamp;
         pool.current_round = Round::Trading;
 
         Ok(())
@@ -98,13 +97,13 @@ pub mod token_sale {
         ctx.accounts.send_tokens_from_seller_to_order(amount_to_sell)?;
 
         let order = &mut ctx.accounts.order;
+        order.is_empty = false;
+        order.created_at = ctx.accounts.clock.unix_timestamp;
         order.bump = order_bump;
         order.token_price = price_for_token;
         order.token_vault = ctx.accounts.order_token_vault.key();
         order.owner = ctx.accounts.seller.key();
         order.token_amount = amount_to_sell;
-
-        ctx.accounts.pool_account.add_order(order.to_account_info().key(), order_bump);
 
         Ok(())
     }
@@ -133,19 +132,22 @@ pub mod token_sale {
         let order = &mut ctx.accounts.order;
         order.token_amount -= tokens_amount;
 
+        if order.token_amount == Tokens::new(0) {
+            ctx.accounts.order.is_empty = true;
+        }
+
         Ok(())
     }
 
     pub fn close_order(ctx: Context<CloseOrder>) -> Result<()> {
         ctx.accounts.sent_all_tokens_from_order_to_owner()?;
-        ctx.accounts.close_order_token_vault()?;
-        ctx.accounts.pool_account.remove_order(ctx.accounts.order.to_account_info().key)
+        ctx.accounts.close_order_token_vault()
     }
 
     #[access_control(can_switch_to_buying_round(&ctx.accounts.pool_account, &ctx.accounts.clock))]
     pub fn switch_to_buying(ctx: Context<SwitchToBuying>) -> Result<()> {
         let pool = &mut ctx.accounts.pool_account;
-        pool.round_start_at = ctx.accounts.clock.unix_timestamp as u32;
+        pool.round_start_at = ctx.accounts.clock.unix_timestamp;
         pool.current_round = Round::Buying;
 
         const PRECISENESS: u64 = 10000;

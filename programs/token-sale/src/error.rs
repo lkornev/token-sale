@@ -30,8 +30,6 @@ pub enum ErrorCode {
     IDOOver,
     #[msg("IDO cannot be ended yet.")]
     IDONotOver,
-    #[msg("IDO has active orders, try to close the orders before terminating the IDO")]
-    IDOHasActiveOrders,
     #[msg("Minimal amount of tokens to buy is 1")]
     BuyingToFewTokens,
     #[msg("Minimal amount of tokens to sell is 1")]
@@ -43,5 +41,7 @@ pub enum ErrorCode {
     #[msg("The first round must start in the future or now")]
     FirstRoundAlreadyStarted,
     #[msg("The IDO must be at least full circle long")]
-    EndsBeforeFullCircle
+    EndsBeforeFullCircle,
+    #[msg("Only the owner of an order can close it")]
+    OnlyOwnerCanCloseOrder,
 }

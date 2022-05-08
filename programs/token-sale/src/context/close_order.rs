@@ -2,6 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, TokenAccount, Token, Mint, transfer, Transfer, CloseAccount};
 use crate::account::*;
 use crate::currency::Tokens;
+use crate::error::ErrorCode;
 
 #[derive(Accounts)]
 pub struct CloseOrder<'info> {
@@ -17,7 +18,7 @@ pub struct CloseOrder<'info> {
         mut,
         seeds = [Order::PDA_SEED, order.owner.as_ref()],
         bump = order.bump,
-        constraint = order.owner == order_owner.key(),
+        constraint = order.owner == order_owner.key() @ErrorCode::OnlyOwnerCanCloseOrder,
         close = order_owner,
     )]
     pub order: Account<'info, Order>,

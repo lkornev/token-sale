@@ -2,14 +2,13 @@ import {PublicKey, Signer, SystemProgram} from "@solana/web3.js";
 import {
     ASSOCIATED_TOKEN_PROGRAM_ID,
     getOrCreateAssociatedTokenAccount,
-    Account as TokenAccount,
     TOKEN_PROGRAM_ID,
     getAssociatedTokenAddress,
 } from "@solana/spl-token";
 import * as anchor from "@project-serum/anchor";
 import { Ctx } from "./ctx";
-import { expect } from "chai";
-import { Round } from "../types/round";
+import { sha256 } from "js-sha256";
+import bs58 from 'bs58';
 
 export namespace RPC {
     export async function initialize(ctx: Ctx) {
@@ -66,7 +65,7 @@ export namespace RPC {
         seller: Signer,
         amountToSell: anchor.BN,
         priceForToken: anchor.BN
-    ): Promise<PlacedOrder> {
+    ): Promise<Order> {
         const [orderPDA, orderBump] = await anchor.web3.PublicKey.findProgramAddress(
             [
                 anchor.utils.bytes.utf8.encode("order"),
@@ -110,14 +109,60 @@ export namespace RPC {
             bump: orderBump,
             tokenVault: orderTokenVault,
             owner: seller.publicKey,
-            priceForToken,
-            amountToSell,
+            tokenPrice: priceForToken,
+            tokenAmount: { tokens: amountToSell },
         });
     }
 
-    export async function getOrders(ctx: Ctx): Promise<OrderAddress[]> {
-        const pool = await ctx.program.account.poolAccount.fetch(ctx.accounts.pool.key);
-        return pool.orders as OrderAddress[];
+    // Get orders, sorted by the creating time in the descending order
+    export async function getOrders(ctx: Ctx, cfg: GetOrderConfig = DEFAULT_GET_ORDER_CONFIG): Promise<Order[]> {
+        const orderDiscriminator = Buffer.from(sha256.digest('account:Order')).slice(0, 8);
+
+        const filters = [
+            { memcmp: { offset: 0, bytes: bs58.encode(orderDiscriminator) } }, // Ensure it's a Order account.
+        ];
+
+        if (cfg.status !== 'all') {
+            const isEmpty: 0 | 1 = cfg.status === 'withTokens' ? 0 : 1;
+            // Filter orders by is_empty field
+            filters.push({ memcmp: { offset: 8, bytes: bs58.encode(Uint8Array.from([isEmpty])) } });
+        }
+
+        if (cfg.owner) {
+            // Filter orders by owner field
+            filters.push({ memcmp: { offset: 8 + 1 + 8, bytes: cfg.owner.toBase58() } });
+        }
+
+        const orders = (await ctx.connection.getProgramAccounts(ctx.program.programId, {
+            dataSlice: { offset: 8 + 1, length: 8 }, // Fetch the created_at only.
+            filters,
+        }));
+
+        const ordersSortedByDate = orders.map(({ pubkey, account }) => ({
+            pubkey,
+            createdAt: new anchor.BN(account.data, 'le'),
+        })).sort((a, b) => b.createdAt.cmp(a.createdAt));
+
+        const paginatedOrders = ordersSortedByDate.slice((cfg.page - 1) * cfg.perPage, cfg.page * cfg.perPage);
+
+        if (paginatedOrders.length === 0) {
+            return [];
+        }
+
+        const paginatedOrdersKeys = paginatedOrders.map(({ pubkey }) => pubkey);
+        const ordersWithData: Order[] = (await ctx.program.account.order.fetchMultiple(paginatedOrdersKeys))
+            .map((order: any, i) => {
+                return {
+                    address: paginatedOrders[i].pubkey,
+                    bump: order.bump,
+                    tokenVault: order.tokenVault,
+                    owner: order.owner,
+                    tokenPrice: order.tokenPrice,
+                    tokenAmount: order.tokenAmount,
+                };
+            });
+
+        return ordersWithData;
     }
 
     export async function redeemOrder(ctx: Ctx, orderAddress: PublicKey, buyer: Signer, amountToBuy: anchor.BN) {
@@ -200,16 +245,25 @@ export namespace RPC {
     }
 }
 
-export interface PlacedOrder {
+export interface Order {
     address: PublicKey,
     bump: number,
     tokenVault: PublicKey,
     owner: PublicKey,
-    priceForToken: anchor.BN,
-    amountToSell: anchor.BN,
+    tokenPrice: anchor.BN,
+    tokenAmount: { tokens: anchor.BN },
 }
 
-export interface OrderAddress {
-    pubkey: PublicKey,
-    bump: number,
+
+export interface GetOrderConfig {
+    status: 'all' | 'empty' | 'withTokens',
+    page: number,
+    perPage: number,
+    owner?: PublicKey,
+}
+
+const DEFAULT_GET_ORDER_CONFIG: GetOrderConfig = {
+    status: 'withTokens',
+    page: 1, 
+    perPage: 100,
 }

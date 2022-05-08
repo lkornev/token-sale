@@ -43,9 +43,9 @@ export interface Ctx {
     traderSecond: CtxTrader,
     traderThird: CtxTrader,
     // When the IDO starts (UNIX in seconds)
-    roundStartAt: number,
+    roundStartAt: anchor.BN,
     // When the IDO completes (UNIX in seconds)
-    endAt: number,
+    endAt: anchor.BN,
     accounts: {
         pool: CtxAccountPDA,
     }
@@ -120,8 +120,8 @@ export async function createCtx(connection: Connection, program: Program<TokenSa
             signer: user3,
             ata: ata3.address,
         },
-        roundStartAt: now + 1,
-        endAt: now + 12,
+        roundStartAt: new anchor.BN(now + 1),
+        endAt: new anchor.BN(now + 12),
         accounts: {
             pool: { key: poolPDA, bump: poolBump },
         }

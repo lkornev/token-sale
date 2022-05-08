@@ -5,10 +5,11 @@ import { sleepTill } from "./helpers/helpers";
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { Round } from "./types/round";
 import { createCtx, Ctx } from "./helpers/ctx";
-import { OrderAddress, RPC } from "./helpers/rpc";
+import { RPC } from "./helpers/rpc";
 import { CheckCtx} from "./helpers/check";
 import { expect } from "chai";
 import { getAccount as getTokenAccount, getMint } from "@solana/spl-token";
+import { Order } from './helpers/rpc';
 
 describe("happy-path", () => {
     // Configure the client to use the local cluster.
@@ -44,7 +45,7 @@ describe("happy-path", () => {
     });
 
     it("Switches to the trading round", async () => {
-        const currentRoundEndsAtMs = (ctx.roundStartAt + ctx.buyingDuration) * 1000;
+        const currentRoundEndsAtMs = (Number(ctx.roundStartAt) + ctx.buyingDuration) * 1000;
         await sleepTill(currentRoundEndsAtMs);
         await RPC.switchToTrading(ctx);
         await CheckCtx.currentRound(ctx, Round.Trading, Date.now());
@@ -60,27 +61,28 @@ describe("happy-path", () => {
         const secondTraderBalanceBefore = await getTokenAccount(connection, ctx.traderSecond.ata);
 
         const placedOrderFirst = await RPC.placeOrder(ctx, ctx.traderFirst.signer, amountToSellFirst, priceForTokenFirst);
-        await CheckCtx.lastPlacedOrder(ctx, placedOrderFirst);
+        await CheckCtx.order(ctx, placedOrderFirst.address, placedOrderFirst);
         await CheckCtx.tokenBalance(ctx, ctx.traderFirst.ata, firstTraderBalanceBefore.amount, -amountToSellFirst);
 
         const placedOrderSecond = await RPC.placeOrder(ctx, ctx.traderSecond.signer, amountToSellSecond, priceForTokenSecond);
-        await CheckCtx.lastPlacedOrder(ctx, placedOrderSecond);
+        await CheckCtx.order(ctx, placedOrderSecond.address, placedOrderSecond);
         await CheckCtx.tokenBalance(ctx, ctx.traderSecond.ata, secondTraderBalanceBefore.amount, -amountToSellSecond);
 
-        const orders: OrderAddress[] = await RPC.getOrders(ctx);
+        const orders = await RPC.getOrders(ctx);
         expect(orders.length).to.be.eq(2);
     });
 
     it("Buys tokens from other traders", async () => {
-        const orders: OrderAddress[] = await RPC.getOrders(ctx);
-        const orderAddress = orders[0].pubkey;
+        const orders = await RPC.getOrders(ctx);
+        const orderAddress = orders[0].address;
         const orderBefore = await program.account.order.fetch(orderAddress);
         const orderOwnerAccountBefore = await connection.getAccountInfo(orderBefore.owner);
         const orderTokens = orderBefore.tokenAmount.tokens;
+        const isTokenAmountEven = (Number(orderTokens) % 2) === 0;
         const halfOfAllTokens = orderTokens.div(new anchor.BN(2));
 
         await RPC.redeemOrder(ctx, orderAddress, ctx.traderThird.signer, halfOfAllTokens);
-        await RPC.redeemOrder(ctx, orderAddress, ctx.traderThird.signer, halfOfAllTokens);
+        await RPC.redeemOrder(ctx, orderAddress, ctx.traderThird.signer, halfOfAllTokens.add(new anchor.BN(isTokenAmountEven ? 0 : 1)));
 
         await CheckCtx.redeemedOrder(ctx, orderAddress, ctx.traderThird.signer.publicKey, orderTokens, orderTokens);
 
@@ -89,34 +91,30 @@ describe("happy-path", () => {
     });
 
     it("Closes orders", async () => {
-        const orders: OrderAddress[] = await RPC.getOrders(ctx);
-        const orderSpace = (await ctx.connection.getAccountInfo(orders[0].pubkey)).data.length;
-
-        const orderKey1 = orders[0].pubkey;
-        const order1 = await ctx.program.account.order.fetch(orderKey1);
+        const order1 = (await RPC.getOrders(ctx, { page: 1, perPage: 100, status: 'all', owner: ctx.traderFirst.signer.publicKey}))[0];
+        const orderSpace = (await ctx.connection.getAccountInfo(order1.address)).data.length;
         const orderTokens1 = (await getTokenAccount(ctx.connection, order1.tokenVault)).amount;
         const ownerKey1 = ctx.traderFirst.signer.publicKey;
         const ownerTokens1 = (await getTokenAccount(ctx.connection, ctx.traderFirst.ata)).amount;
         const ownerLamports1 = (await ctx.connection.getAccountInfo(ownerKey1)).lamports;
 
-        await RPC.closeOrder(ctx, orderKey1, order1.tokenVault, ctx.traderFirst.signer, ctx.traderFirst.ata);
-        await CheckCtx.closeOrder(ctx, orderKey1, orderTokens1, orderSpace, ownerKey1, ownerTokens1, ownerLamports1);
-        expect((await RPC.getOrders(ctx)).length).to.be.eq(1);
+        await RPC.closeOrder(ctx, order1.address, order1.tokenVault, ctx.traderFirst.signer, ctx.traderFirst.ata);
+        await CheckCtx.closeOrder(ctx, order1.address, orderTokens1, orderSpace, ownerKey1, ownerTokens1, ownerLamports1);
 
-        const orderKey2 = orders[1].pubkey;
-        const order2 = await ctx.program.account.order.fetch(orderKey2);
+        const order2 = (await RPC.getOrders(ctx, { page: 1, perPage: 100, status: 'all', owner: ctx.traderSecond.signer.publicKey}))[0];
         const orderTokens2 = (await getTokenAccount(ctx.connection, order2.tokenVault)).amount;
         const ownerKey2 = ctx.traderSecond.signer.publicKey;
         const ownerTokens2 = (await getTokenAccount(ctx.connection, ctx.traderSecond.ata)).amount;
         const ownerLamports2 = (await ctx.connection.getAccountInfo(ownerKey2)).lamports;
 
-        await RPC.closeOrder(ctx, orderKey2, order2.tokenVault, ctx.traderSecond.signer, ctx.traderSecond.ata);
-        await CheckCtx.closeOrder(ctx, orderKey2, orderTokens2, orderSpace, ownerKey2, ownerTokens2, ownerLamports2);
-        expect((await RPC.getOrders(ctx)).length).to.be.eq(0);
+        await RPC.closeOrder(ctx, order2.address, order2.tokenVault, ctx.traderSecond.signer, ctx.traderSecond.ata);
+        await CheckCtx.closeOrder(ctx, order2.address, orderTokens2, orderSpace, ownerKey2, ownerTokens2, ownerLamports2);
+
+        expect((await RPC.getOrders(ctx, { page: 1, perPage: 100, status: 'all'})).length).to.be.eq(0);
     });
 
     it("Waits till the end of the current round and switches to the buying round", async () => {
-        const currentRoundEndsAtMs = (ctx.roundStartAt + ctx.tradingDuration + 1) * 1000;
+        const currentRoundEndsAtMs = (Number(ctx.roundStartAt) + ctx.tradingDuration + 1) * 1000;
         await sleepTill(currentRoundEndsAtMs);
 
         await RPC.switchToBuying(ctx);
@@ -127,10 +125,8 @@ describe("happy-path", () => {
         expect(Number(pool.tokenPrice)).to.be.eq(expectedTokenPrice);
     });
 
-    // TODO buy, switch to trading, trade
-
     it("Waits till the end of the IDO", async () => {
-        await sleepTill((ctx.endAt + 1) * 1000);
+        await sleepTill((Number(ctx.endAt) + 1) * 1000);
     });
 
     it("Withdraws lamports income to the owner of the IDO", async () => {
