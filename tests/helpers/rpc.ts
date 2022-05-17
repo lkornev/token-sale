@@ -1,4 +1,4 @@
-import {PublicKey, Signer, SystemProgram} from "@solana/web3.js";
+import { PublicKey, Signer, SystemProgram } from "@solana/web3.js";
 import {
     ASSOCIATED_TOKEN_PROGRAM_ID,
     getOrCreateAssociatedTokenAccount,
@@ -18,7 +18,6 @@ export namespace RPC {
             ctx.buyingDuration,
             ctx.tradingDuration,
             ctx.initialTokenPrice,
-            ctx.accounts.pool.bump,
             { tokens: ctx.amountForSale },
             ctx.coeffA,
             ctx.coeffB,
@@ -85,7 +84,6 @@ export namespace RPC {
 
         await ctx.program.methods
             .placeOrder(
-                orderBump,
                 { tokens: amountToSell },
                 priceForToken,
             )
@@ -253,7 +251,6 @@ export interface Order {
     tokenPrice: anchor.BN,
     tokenAmount: { tokens: anchor.BN },
 }
-
 
 export interface GetOrderConfig {
     status: 'all' | 'empty' | 'withTokens',

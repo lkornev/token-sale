@@ -20,7 +20,6 @@ pub mod token_sale {
         buying_duration: u32,
         trading_duration: u32,
         token_price: u64,
-        pool_bump: u8,
         amount_to_sell: Tokens,
         coeff_a: f32,
         coeff_b: u32,
@@ -35,7 +34,7 @@ pub mod token_sale {
         require!(end_at >= full_cycle, ErrorCode::EndsBeforeFullCircle);
 
         let pool_account = &mut ctx.accounts.pool_account;
-        pool_account.bump = pool_bump;
+        pool_account.bump = *ctx.bumps.get("pool_account").expect("pool_account bump exists");
         pool_account.owner = ctx.accounts.distribution_authority.key();
         pool_account.selling_mint = ctx.accounts.selling_mint.key();
         pool_account.vault_selling = ctx.accounts.vault_selling.key();
@@ -52,10 +51,7 @@ pub mod token_sale {
     }
 
     #[access_control(round_buying(&ctx.accounts.pool_account, &ctx.accounts.clock))]
-    pub fn buy(
-        ctx: Context<BuyTokens>,
-        amount_to_buy: Tokens,
-    ) -> Result<()> {
+    pub fn buy(ctx: Context<BuyTokens>, amount_to_buy: Tokens) -> Result<()> {
         let amount_for_sale = Tokens::new(ctx.accounts.vault_selling.amount);
         let lamports_amount = ctx.accounts.pool_account
             .try_tokens_to_lamports(amount_to_buy).expect("Converts tokens to lamports");
@@ -83,12 +79,7 @@ pub mod token_sale {
     }
 
     #[access_control(round_trading(&ctx.accounts.pool_account, &ctx.accounts.clock))]
-    pub fn place_order(
-        ctx: Context<PlaceOrder>,
-        order_bump: u8,
-        amount_to_sell: Tokens,
-        price_for_token: u64,
-    ) -> Result<()> {
+    pub fn place_order(ctx: Context<PlaceOrder>, amount_to_sell: Tokens, price_for_token: u64) -> Result<()> {
         require!(amount_to_sell >= Tokens::new(1), ErrorCode::SellingToFewTokens);
 
         let seller_tokens = Tokens::new(ctx.accounts.seller_token_account.amount);
@@ -99,7 +90,7 @@ pub mod token_sale {
         let order = &mut ctx.accounts.order;
         order.is_empty = false;
         order.created_at = ctx.accounts.clock.unix_timestamp;
-        order.bump = order_bump;
+        order.bump = *ctx.bumps.get("order").expect("order bump exists");
         order.token_price = price_for_token;
         order.token_vault = ctx.accounts.order_token_vault.key();
         order.owner = ctx.accounts.seller.key();
@@ -109,10 +100,7 @@ pub mod token_sale {
     }
 
     #[access_control(round_trading(&ctx.accounts.pool_account, &ctx.accounts.clock))]
-    pub fn redeem_order(
-        ctx: Context<RedeemOrder>,
-        tokens_amount: Tokens, // amount of tokens to buy
-    ) -> Result<()> {
+    pub fn redeem_order(ctx: Context<RedeemOrder>, tokens_amount: Tokens) -> Result<()> {
         require!(tokens_amount >= Tokens::new(1), ErrorCode::BuyingToFewTokens);
 
         let order_tokens = Tokens::new(ctx.accounts.order_token_vault.amount);
